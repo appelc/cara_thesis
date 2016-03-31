@@ -5,6 +5,7 @@
 
 library(googlesheets)
 library(chron)
+library(sp)
 
 setwd("C:/Users/Cara/Documents/__RESEARCH/ANALYSIS/033116")
 
@@ -25,6 +26,13 @@ hen <- subset(gps, Animal.ID == "15.01")
 hen <- droplevels(hen)
 unique(hen$Animal.ID)
 
+hen.sp <- SpatialPointsDataFrame(data.frame(hen$Longitude, hen$Latitude),
+                                 data=data.frame(hen),
+                                 proj4string=CRS("+proj=longlat +datum=WGS84"))
+plot(hen)
+
 gps.sp <- SpatialPointsDataFrame(data.frame(gps$Longitude, gps$Latitude),
                                     data=data.frame(gps),
-                                    proj4string=CRS())
+                                    proj4string=CRS("+proj=longlat +datum=WGS84"))
+plot(gps.sp)
+
