@@ -19,4 +19,5 @@ my.table <- data.frame(observations, veg.classes)
 
 my.glm <- glm(observations ~ veg.classes, data=my.table, family="binomial")
 # Show summary (this comment is on Tim's computer)
+# this comment is also on Tim's computer
 summary(my.glm)
