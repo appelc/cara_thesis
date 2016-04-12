@@ -42,13 +42,14 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
 ######################
 
 ## try first with just a couple animals
-hen.anna.locs <- subset(porc.locs, id %in% c("15.01", "15.02"))
+hen.anna.locs <- subset(porc.locs, id %in% c("15.01"))
 ha.sp <- SpatialPointsDataFrame(data.frame(hen.anna.locs$utm_e, hen.anna.locs$utm_n),
                                  data=data.frame(hen.anna.locs$id),
                                  proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Calculate KDE using kernelUD first and then kernel.area
-ha.kud <- kernelUD(ha.sp, h="LSCV") #did not converge
+ha.kud <- kernelUD(ha.sp, h="LSCV", hlim=c(0.01,2)) #did not converge
+plotLSCV(ha.kud)
 ha.kud <- kernelUD(ha.sp, h="href") #no error
 
 ## Unless all LSCV converge, use "href" (I think it's default, so omitted from subsequent code)
@@ -57,8 +58,9 @@ porc1a <- kernelUD(ha.sp, extent=0.2, grid=20)
 porc1b <- kernelUD(ha.sp, extent=0.2, grid=100) ## I think I like this the best
 porc1c <- kernelUD(ha.sp, extent=2, grid=20)
 porc1d <- kernelUD(ha.sp, extent=2, grid=100)
-porc1e <- kernelUD(ha.sp, extent=1, grid=100) ## compromise b/c error with 1b (extent too small)
-
+porc1e <- kernelUD(ha.sp, extent=0.2, grid=1000, h=60) ## compromise b/c error with 1b (extent too small)
+image(porc1e)
+points(ha.sp)
 # Set up graphical window to see multiple graphs
 par(mfrow=c(2,2)) 
 image(porc1a)
@@ -72,8 +74,14 @@ title(main="grid=100, extent=2")
 image(porc1e)
 title(main="grid=100, extent=1") ## compromise b/c error with 1b (extent too small)
 
-names(ha.kud)
-test <- as.data.frame.estUD(ha.kud)
+# convert estUD to raster
+porc1e.raster <- raster(estUDm2spixdf(porc1e))
+
+# one way to extract all the values from estUD                        
+ud.height1 <- ha.kud[[1]]@data$ud
+
+# or you can extract just at the coordinates from the raster
+ha.sp$udheight <- extract(porc1e.raster, ha.sp)
 
 
 
