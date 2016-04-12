@@ -24,6 +24,8 @@ colnames(porc.locs) <- c("date", "id", "sess", "type", "time", "az", "utm_e", "u
                              "obs", "loc", "pos", "notes", "xvar", "yvar", "cov", "error")
 porc.locs <- subset(porc.locs, type %in% c("V","V*","P","P*","L"))
 porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
+porc.locs$utm_e <- as.numeric(porc.locs$utm_e)
+porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
 
 ## Keep only animals with >= 5 locations
 n <- table(porc.locs$id)
