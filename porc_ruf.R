@@ -42,9 +42,9 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
 ######################
 
 ## try first with just a couple animals
-hen.anna.locs <- subset(porc.locs, id %in% c("15.01"))
-ha.sp <- SpatialPointsDataFrame(data.frame(hen.anna.locs$utm_e, hen.anna.locs$utm_n),
-                                 data=data.frame(hen.anna.locs$id),
+hen.locs <- subset(porc.locs, id %in% c("15.01"))
+ha.sp <- SpatialPointsDataFrame(data.frame(hen.locs$utm_e, hen.locs$utm_n),
+                                 data=data.frame(hen.locs$id),
                                  proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Calculate KDE using kernelUD first and then kernel.area
@@ -52,15 +52,33 @@ ha.kud <- kernelUD(ha.sp, h="LSCV", hlim=c(0.01,2)) #did not converge
 plotLSCV(ha.kud)
 ha.kud <- kernelUD(ha.sp, h="href") #no error
 
-## Unless all LSCV converge, use "href" (I think it's default, so omitted from subsequent code)
 ## Now try extent/grid combos
-porc1a <- kernelUD(ha.sp, extent=0.2, grid=20)
-porc1b <- kernelUD(ha.sp, extent=0.2, grid=100) ## I think I like this the best
-porc1c <- kernelUD(ha.sp, extent=2, grid=20)
-porc1d <- kernelUD(ha.sp, extent=2, grid=100)
-porc1e <- kernelUD(ha.sp, extent=0.2, grid=1000, h=60) ## compromise b/c error with 1b (extent too small)
+porc1e <- kernelUD(ha.sp, extent=0.2, grid=1000, h=60) 
 image(porc1e)
 points(ha.sp)
+
+## Now do with all
+all.kud <- kernelUD(porc.sp, h="href")
+image(all.kud)
+
+all.kud <- kernelUD(porc.sp, h=60, extent=0.2, grid=100)
+image(all.kud)
+points(porc.sp)
+
+
+
+dups <- duplicated(porc.sp@coords) # find duplicates in coordinates
+head(dups) # returns list of TRUE/FALSE
+dup.loc <- porc.sp[dups,] # Create table with duplicates only
+dup.loc
+
+non.dups <- porc.sp[!dups,] ## Now remove the duplicates; "non.dups" is our new data name
+
+
+
+
+
+
 # Set up graphical window to see multiple graphs
 par(mfrow=c(2,2)) 
 image(porc1a)
