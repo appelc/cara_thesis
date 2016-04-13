@@ -21,7 +21,7 @@ cat("
     # Priors
     beta0 ~ dnorm(0, .00001) # vague prior
     beta1 ~ dnorm(0, .00001) # Prior for slope 
-    
+     
     # Likelihood: note key components in one line each
     for (i in 1:n){
     Success[i] ~ dbin(p[i], N[i])          # r.v. (draw from binom w/prob success specific to that location and number of times we tried it at that location)
