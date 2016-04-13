@@ -13,11 +13,11 @@ veg@proj4string
 ## can change between "Class", "Class_2", & "Class_3" columns in veg.class for less detail
 ## (also need to change in first line of loop: class.i)
 
-veg.class <- unique(veg$Class)
+veg.class <- unique(veg$Class_2)
 means <- NULL
 
 for(i in veg.class){
-     class.i <- subset(veg, Class == i)
+     class.i <- subset(veg, Class_2 == i)
      class.i <- droplevels(class.i@data)
      mean.i <- mean(class.i$Area_1)
      x <- data.frame(i, mean.i)
@@ -28,7 +28,7 @@ means
 barplot(means$mean.i, names.arg=means$i, ylab="area (m^2)", xlab="veg class", las=2)
 
 ## try without pasture b/c it's huge
-means2 <- means[-10,]
+means2 <- means[-8,]
 barplot(means2$mean.i, names.arg=means2$i, ylab="area (m^2)", xlab="veg class", las=2)
 
 ## plot a line corresponding to a "patch" of a given bandwidth
@@ -41,15 +41,20 @@ abline(h=area)
 mean.all.2 <- mean(means2$mean.i)
 mean.all.2
 
+## fix plot margins
+par(mai=c(1.7,1,0.3,0.2))
+
 ## and without pasture, beach strand, brackish marsh, and beachgrass dune
-means3 <- means[-c(5, 9, 10, 14),]
+means3 <- means[-c(5, 7, 8, 11),]
 means3
-barplot(means3$mean.i, names.arg=means3$i, ylab="area (m^2)", xlab="veg class", las=2)
+
+barplot(means3$mean.i, names.arg=means3$i, ylab="area (m^2)", las=2)
 abline(h=area)
 
 ## what's avg size without these?
 mean.all.3 <- mean(means3$mean.i)
 mean.all.3
+abline(h=mean.all.3, lty=2, col="blue")
 
 ## what radius (h) does this correspond to?
 sqrt((mean.all.3)/pi)
