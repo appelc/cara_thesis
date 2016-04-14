@@ -47,6 +47,8 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
 ######################
 
 ## Calculate KUD for all animals
+
+## href just to compare
 all.kud <- kernelUD(porc.sp, h="href")
 image(all.kud) #href doesn't look great
 
@@ -73,8 +75,6 @@ for(i in ids){
                            paste(i, "_ud", ".csv", sep = ""))
       write.csv(ht.i, file=mypath)
 }
-
-write.csv(porc_uds, "porc_uds.csv")
 
 ## too big... do them separately!
 
@@ -112,4 +112,61 @@ plot(raster18)
 # now, you can extract just at the coordinates from the raster
 porc.sp$udheight <- extract(all.kud.raster, porc.sp)
 test.udheight <- extract(raster01, porc.sp)
+
+######################
+## 4. Assign values of covariates (veg class, canopy height) to cells
+##    a. For UD height at each pixel
+######################
+
+veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
+proj4string(veg) <- proj4string(porc.sp)
+
+## do spatial join using package "sp"
+
+## load one ud.csv as an example
+stevie <- read.csv("RUFs/15.07_ud.csv")
+head(stevie)
+
+stevie.sp <- SpatialPointsDataFrame(data.frame(stevie$x, stevie$y),
+                                    data=data.frame(stevie),
+                                    proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+stevie.sp@data$veg <- over(stevie.sp, veg)$Class
+head(stevie.sp@data)
+
+######################
+## 5. Run RUF using package "ruf"
+######################
+
+## load one of the ud.csv files to start ... or will they already be loaded from step 3?
+#stevie <- read.csv("RUFs/15.07_ud.csv") 
+head(stevie)
+
+## multiply "height" by 100 (anything else?)
+#stevie$height2 <- (stevie$height)*100 
+#stevie.sp@data$height2 <- (stevie.sp@data$height)*100
+head(stevie)
+
+# Set initial estimates for range/smoothness
+hval <- c(0.2, 1.5)
+
+## don't have any predictors yet, but they'd go after height ~
+# Estimate (unstandardized) coefficients
+stevie.fit <- ruf.fit(height2 ~ veg,
+                    space = ~ x + y,
+                    data=stevie.sp, theta=hval,
+                    name="15.07",
+                    standardized=F)
+
+summary(stevie.fit)
+
+# Estimate (standardized) coefficients
+stevie.fit <- ruf.fit(height2 ~ veg,
+                    space = ~ x + y,
+                    data=stevie.sp, theta=hval,
+                    name="15.07 standardized",
+                    standardized=T)
+summary(stevie.fit)
+
+names(stevie.fit)
 
