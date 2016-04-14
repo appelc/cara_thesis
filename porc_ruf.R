@@ -57,8 +57,8 @@ all.kud <- kernelUD(porc.sp, h=60, extent=1, grid=1000)
 image(all.kud)
 
 ######################
-## 3. Then, create a table with id, coord, and UD height
-## (or do I want a different table for each porc?)
+## 3. Then, create a table with id, coord, and UD height for each porc
+## (too big to do them all in one .csv)
 ## a. Get UD height at each pixel
 ######################
 
@@ -75,8 +75,6 @@ for(i in ids){
                            paste(i, "_ud", ".csv", sep = ""))
       write.csv(ht.i, file=mypath)
 }
-
-## too big... do them separately!
 
 ######################
 ## b. Get UD height at occurrence points only
@@ -127,43 +125,69 @@ proj4string(veg) <- proj4string(porc.sp)
 stevie <- read.csv("RUFs/15.07_ud.csv")
 head(stevie)
 
+roze <- read.csv("RUFs/15.08_ud.csv")
+head(roze)
+
+## multiply "height" by 100 before converting to spdf **is 100 enough?**
+stevie$height2 <- (stevie$height)*100
+head(stevie)
+
 stevie.sp <- SpatialPointsDataFrame(data.frame(stevie$x, stevie$y),
-                                    data=data.frame(stevie),
+                                    data=data.frame(stevie$id, stevie$height2),
                                     proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
 
+roze$height2 <- (roze$height)*100
+roze.sp <- SpatialPointsDataFrame(data.frame(roze$x, roze$y),
+                                  data=data.frame(roze$id, roze$height2),
+                                  proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+
+## assign veg class to each cell (row)
 stevie.sp@data$veg <- over(stevie.sp, veg)$Class
 head(stevie.sp@data)
+
+roze.sp@data$veg <- over(roze.sp, veg)$Class
+head(roze.sp@data)
 
 ######################
 ## 5. Run RUF using package "ruf"
 ######################
 
-## load one of the ud.csv files to start ... or will they already be loaded from step 3?
-#stevie <- read.csv("RUFs/15.07_ud.csv") 
-head(stevie)
+## continue with spdf created above from csv.ud
+## "ruf.fit" doesn't actually need a spdf...
+## make a data.frame with only ud height, covariates, x, y
 
-## multiply "height" by 100 (anything else?)
-#stevie$height2 <- (stevie$height)*100 
-#stevie.sp@data$height2 <- (stevie.sp@data$height)*100
-head(stevie)
+stevie.df <- data.frame(stevie.sp$stevie.height2, stevie.sp@coords, stevie.sp$veg)
+colnames(stevie.df) <- c("ud", "x", "y", "veg")
+head(stevie.df)
 
-# Set initial estimates for range/smoothness
+roze.df <- data.frame(roze.sp$roze.height2, roze.sp@coords, roze.sp$veg)
+colnames(roze.df) <- c("ud", "x", "y", "veg")
+head(roze.df)
+
+## will this fix the "subscript out of bounds" problem? no...
+stevie.df <- stevie.df[!is.na(stevie.df$veg),]
+
+roze.df <- roze.df[!is.na(roze.df$veg),]
+
+## Set initial estimates for range/smoothness
 hval <- c(0.2, 1.5)
 
-## don't have any predictors yet, but they'd go after height ~
-# Estimate (unstandardized) coefficients
-stevie.fit <- ruf.fit(height2 ~ veg,
+## Estimate (unstandardized) coefficients
+roze.fit <- ruf.fit(ud ~ factor(veg),
                     space = ~ x + y,
-                    data=stevie.sp, theta=hval,
-                    name="15.07",
+                    data=roze.df, theta=hval,
+                    name="15.08",
                     standardized=F)
 
-summary(stevie.fit)
+summary(roze.fit)
+
+## error in var(betas) + asycovbeta/con$nresamples : non-coformable arrays
 
 # Estimate (standardized) coefficients
-stevie.fit <- ruf.fit(height2 ~ veg,
+stevie.fit <- ruf.fit(ud ~ veg,
                     space = ~ x + y,
-                    data=stevie.sp, theta=hval,
+                    data=stevie.df, theta=hval,
                     name="15.07 standardized",
                     standardized=T)
 summary(stevie.fit)
