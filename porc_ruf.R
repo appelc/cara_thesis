@@ -128,10 +128,11 @@ head(stevie)
 roze <- read.csv("RUFs/15.08_ud.csv")
 head(roze)
 
+bowie <- read.csv("RUFs/15.05_ud.csv")
+head(bowie)
+
 ## multiply "height" by 100 before converting to spdf **is 100 enough?**
 stevie$height2 <- (stevie$height)*100
-head(stevie)
-
 stevie.sp <- SpatialPointsDataFrame(data.frame(stevie$x, stevie$y),
                                     data=data.frame(stevie$id, stevie$height2),
                                     proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
@@ -141,6 +142,10 @@ roze.sp <- SpatialPointsDataFrame(data.frame(roze$x, roze$y),
                                   data=data.frame(roze$id, roze$height2),
                                   proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
+bowie$height2 <- (bowie$height)*100
+bowie.sp <- SpatialPointsDataFrame(data.frame(bowie$x, bowie$y),
+                                   data=data.frame(bowie$id, bowie$height2),
+                                   proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## assign veg class to each cell (row)
 stevie.sp@data$veg <- over(stevie.sp, veg)$Class
@@ -148,6 +153,9 @@ head(stevie.sp@data)
 
 roze.sp@data$veg <- over(roze.sp, veg)$Class
 head(roze.sp@data)
+
+bowie.sp@data$veg <- over(bowie.sp, veg)$Class
+head(bowie.sp@data)
 
 ######################
 ## 5. Run RUF using package "ruf"
@@ -165,19 +173,27 @@ roze.df <- data.frame(roze.sp$roze.height2, roze.sp@coords, roze.sp$veg)
 colnames(roze.df) <- c("ud", "x", "y", "veg")
 head(roze.df)
 
-## will this fix the "subscript out of bounds" problem? no...
-stevie.df <- stevie.df[!is.na(stevie.df$veg),]
+bowie.df <- data.frame(bowie.sp$bowie.height2, bowie.sp@coords, bowie.sp$veg)
+colnames(bowie.df) <- c("ud", "x", "y", "veg")
+head(bowie.df)
 
+## will this fix the "subscript out of bounds" problem? no...
+## I Will need to "clip" the extent at some point, because a bunch of points within the UD have
+## no covariate values! (Like ones out in the ocean or outside the area that I digitized for the
+## veg polygons.) For now, just remove "NA" values for veg.
+
+stevie.df <- stevie.df[!is.na(stevie.df$veg),]
 roze.df <- roze.df[!is.na(roze.df$veg),]
+bowie.df <- bowie.df[!is.na(bowie.df$veg),]
 
 ## Set initial estimates for range/smoothness
 hval <- c(0.2, 1.5)
 
 ## Estimate (unstandardized) coefficients
-roze.fit <- ruf.fit(ud ~ factor(veg),
+bowie.fit <- ruf.fit(ud ~ factor(veg),
                     space = ~ x + y,
-                    data=roze.df, theta=hval,
-                    name="15.08",
+                    data=bowie.df, theta=hval,
+                    name="15.05",
                     standardized=F)
 
 summary(roze.fit)
@@ -185,9 +201,9 @@ summary(roze.fit)
 ## error in var(betas) + asycovbeta/con$nresamples : non-coformable arrays
 
 # Estimate (standardized) coefficients
-stevie.fit <- ruf.fit(ud ~ veg,
+roze.fit <- ruf.fit(ud ~ factor(veg),
                     space = ~ x + y,
-                    data=stevie.df, theta=hval,
+                    data=roze.df, theta=hval,
                     name="15.07 standardized",
                     standardized=T)
 summary(stevie.fit)
