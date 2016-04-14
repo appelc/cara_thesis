@@ -1,18 +1,22 @@
 #######################################
 ## Trying resource utilization functions (RUFs)
 ## with porcupine data
-##
-## based on RUF lab 8 from Tim's class
 #######################################
-
-library(adehabitatHR)
-library(ruf)
-library(googlesheets)
 
 ## 1. First, load data
 ## 2. Then, need to extract the UD from "adehabitatHR" package
-## 3. Then, create a table with id, coord, and ud height
-## 4. Run RUF using package "ruf"
+## 3. Then, create a table with id, coord, and UD height
+##    a. Get UD height at each pixel
+##    b. Get UD height at occurrence points only
+## 4. Assign values of covariates (veg class, canopy height) to cells
+##    a. For UD height at each pixel
+##    b. For UD height at occurrece points only
+## 5. Run RUF using package "ruf"
+
+library(googlesheets)
+library(adehabitatHR)
+library(ruf)
+library(raster)
 
 ######################
 ## 1. First, load data
@@ -41,76 +45,43 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
 ## 2. Then, extract the UD from "adehabitatHR" package
 ######################
 
-## try first with just a couple animals
-hen.locs <- subset(porc.locs, id %in% c("15.01"))
-ha.sp <- SpatialPointsDataFrame(data.frame(hen.locs$utm_e, hen.locs$utm_n),
-                                 data=data.frame(hen.locs$id),
-                                 proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-## Calculate KDE using kernelUD first and then kernel.area
-ha.kud <- kernelUD(ha.sp, h="LSCV", hlim=c(0.01,2)) #did not converge
-plotLSCV(ha.kud)
-ha.kud <- kernelUD(ha.sp, h="href") #no error
-
-## Now try extent/grid combos
-porc1e <- kernelUD(ha.sp, extent=0.2, grid=1000, h=60) 
-image(porc1e)
-points(ha.sp)
-
-## Now do with all
+## Calculate KDE using kernelUD for all animals
 all.kud <- kernelUD(porc.sp, h="href")
-image(all.kud)
+image(all.kud) #href doesn't look great
 
-all.kud <- kernelUD(porc.sp, h=60, extent=0.2, grid=100)
+## revisit extent parameter (actually calculate for cell ~3-6 meters)
+all.kud <- kernelUD(porc.sp, h=60, extent=1, grid=1000)
 image(all.kud)
 points(porc.sp)
 
-
-
-dups <- duplicated(porc.sp@coords) # find duplicates in coordinates
-head(dups) # returns list of TRUE/FALSE
-dup.loc <- porc.sp[dups,] # Create table with duplicates only
-dup.loc
-
-non.dups <- porc.sp[!dups,] ## Now remove the duplicates; "non.dups" is our new data name
-
-
-
-
-
-
-# Set up graphical window to see multiple graphs
-par(mfrow=c(2,2)) 
-image(porc1a)
-title(main="grid=20, extent=0.2")
-image(porc1b)
-title(main="grid=100, extent=0.2") ## I think I like this the best
-image(porc1c)
-title(main="grid=20, extent=2")
-image(porc1d)
-title(main="grid=100, extent=2")
-image(porc1e)
-title(main="grid=100, extent=1") ## compromise b/c error with 1b (extent too small)
-
 # convert estUD to raster
-porc1e.raster <- raster(estUDm2spixdf(porc1e))
+all.kud.raster <- raster(estUDm2spixdf(all.kud))
+###### ERROR: this function can only be used when the same grid was used for all animals
+###### (can add "same4all=TRUE" to kernelUD code, but I don't think that's what we want)
 
-# one way to extract all the values from estUD                        
-ud.height1 <- ha.kud[[1]]@data$ud
+######################
+## 3. Then, create a table with id, coord, and UD height
+## (or do I want a different table for each porc?)
+## a. Get UD height at each pixel
+######################
+
+ids <- names(all.kud)
+porc_uds <- NULL
+
+for(i in ids){
+      ud.height.i <- all.kud[[i]]@data$ud
+      coords.i <- all.kud[[i]]@coords
+      ht.i <- cbind((rep(i, length(ud.height.i))), ud.height.i, coords.i)
+      colnames(ht.i) <- c("id", "height", "x", "y")
+      porc_uds <- rbind(porc_uds, ht.i)
+}
+write.csv(porc_uds, "porc_uds.csv")
+## too big... do them separately!
+
+######################
+## b. Get UD height at occurrence points only
+######################
 
 # or you can extract just at the coordinates from the raster
-ha.sp$udheight <- extract(porc1e.raster, ha.sp)
+porc.sp$udheight <- extract(all.kud.raster, porc.sp)
 
-
-
-# The actual data.frame that you'd want to create should have
-# the same columns (i.e. the estimates of the "height" of the utilization
-# distribution; the x and y coordinates of each obesrvation; and the
-# values of the independent variables at each coordinate.). The difference
-# is that rather than including just 100 points, you'd include every single
-# cell within the 95% (or 100%) KDE.
-
-# Hint: You can extract the "height" of the UD, once you've created one
-# in adehabitat, with kud@data$ud (where 'kud' is the name of the kernel
-# density estimate you created). You can extract the coordinates with
-# kud@coords. 
