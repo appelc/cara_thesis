@@ -5,6 +5,7 @@
 
 ## 1. First, load data
 ## 2. Then, need to extract the UD from "adehabitatHR" package
+##    (set bandwidth, grid, and extent)
 ## 3. Then, create a table with id, coord, and UD height
 ##    a. Get UD height at each pixel
 ##    b. Get UD height at occurrence points only
@@ -12,6 +13,8 @@
 ##    a. For UD height at each pixel
 ##    b. For UD height at occurrece points only
 ## 5. Run RUF using package "ruf"
+##    a. For UD height at each pixel
+##    b. For UD height at occurrence points only
 
 library(adehabitatHR)
 library(googlesheets)
@@ -81,12 +84,13 @@ for(i in ids){
 ######################
 
 ## first, convert estUD to raster
+## this combines step 2 (kernelUD)
 
 ## I used "writeOGR" and exported shapefiles because I was having trouble with raster(estUDm2spixdf()),
-## But also kept raster for "extract". Try GeoTIFF from writeOGR? This is kind of a mess...
-## Can I just create separate raster objects for each instead of exporting them?
+## But also used raster for "extract." Try GeoTIFF from writeOGR? This is kind of a mess...
+## Can I just create separate raster objects for each animal instead of exporting them w/OGR?
 
-ids <- names(all.kud)
+ids <- unique(porc.locs$id)
 ud_heights <- NULL
 
 for(i in ids){
@@ -110,7 +114,7 @@ head(ud_heights)
 colnames(ud_heights) <- c("id", "ud_height", "x", "y")
 
 plot(ud_heights$y ~ ud_heights$x)
-plot(i.raster)
+plot(i.raster) ## can I get raster objects for all of them separately?
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
@@ -163,6 +167,8 @@ head(bowie.sp@data)
 ######################
 
 head(ud_heights)
+
+## the ud_heights object has points for ALL animals, with an "id" column
 
 ## multiply "height" by 100 before converting to spdf **is 100 enough?**
 ud_heights$height2 <- (ud_heights$ud_height)*100
