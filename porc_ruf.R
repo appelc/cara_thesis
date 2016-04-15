@@ -81,35 +81,36 @@ for(i in ids){
 ######################
 
 ## first, convert estUD to raster
-## need to do separately for each animal (I get an error in "raster" function that it only works
-## when all animals have the same grid... can add "same4all=TRUE", but is this what we want?)
-## NOt as easy to just do "raster" with one animal, because using something like "kud.all[1]" makes
-## it not an "estUDm" object anymore (estUD-multiple animals) but an "estUD" (single animal), and
-## the "estUDm2spixdf" will only convert an estUDm object to a SPDF, not an estUD object... phew.
 
-## this should be a loop, but I can't figure out how to save the rasters separately
-## could do writeOGR instead of raster function?
-## otherwise, have to do this each time?
+## I used "writeOGR" and exported shapefiles because I was having trouble with raster(estUDm2spixdf()),
+## But also kept raster for "extract". Try GeoTIFF from writeOGR? This is kind of a mess...
+## Can I just create separate raster objects for each instead of exporting them?
 
-#ids <- names(all.kud)
-i <- ids[17] # just change number here each time
-#for(i in ids){
-i.locs <- subset(porc.locs, id == i)
-i.locs <- droplevels(i.locs)
-i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
+ids <- names(all.kud)
+ud_heights <- NULL
+
+for(i in ids){
+    i.locs <- subset(porc.locs, id == i)
+    i.locs <- droplevels(i.locs)
+    i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
                                data=data.frame(i.locs$id),
                                proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-i.kud <- kernelUD(i.sp, h=60, extent=1, grid=1000)
-i.raster <- raster(estUDm2spixdf(i.kud))
-#}
+    i.kud <- kernelUD(i.sp, h=60, extent=1, grid=1000)
+    i.raster <- raster(estUDm2spixdf(i.kud))
+    i.sp$udheight <- extract(i.raster, i.sp)
+    name = paste(i, "raster")
+    filepath <- file.path("C:","Users","Cara","Documents","cara_thesis", "rasters",
+                        paste(i, "raster", ".shp", sep = ""))
+    writeOGR(i.sp, dsn=filepath, layer=name, driver="ESRI Shapefile") ## not a raster!
+    export <- data.frame(i.sp@data$i.locs.id, i.sp@data$udheight, i.sp@coords)
+    ud_heights <- rbind(ud_heights, export)
+    }
 
-## and rename it here each time
-raster18 <- i.raster
-plot(raster18)
+head(ud_heights)
+colnames(ud_heights) <- c("id", "ud_height", "x", "y")
 
-# now, you can extract just at the coordinates from the raster
-porc.sp$udheight <- extract(all.kud.raster, porc.sp)
-test.udheight <- extract(raster01, porc.sp)
+plot(ud_heights$y ~ ud_heights$x)
+plot(i.raster)
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
@@ -158,7 +159,24 @@ bowie.sp@data$veg <- over(bowie.sp, veg)$Class
 head(bowie.sp@data)
 
 ######################
+## b. For UD height at occurrence points only
+######################
+
+head(ud_heights)
+
+## multiply "height" by 100 before converting to spdf **is 100 enough?**
+ud_heights$height2 <- (ud_heights$ud_height)*100
+ud.sp <- SpatialPointsDataFrame(data.frame(ud_heights$x, ud_heights$y),
+                                    data=data.frame(ud_heights$id, ud_heights$height2),
+                                    proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+## assign veg class to each cell (row)
+ud.sp@data$veg <- over(ud.sp, veg)$Class
+head(ud.sp@data)
+
+######################
 ## 5. Run RUF using package "ruf"
+##    a. For UD height at each pixel
 ######################
 
 ## continue with spdf created above from csv.ud
@@ -177,7 +195,7 @@ bowie.df <- data.frame(bowie.sp$bowie.height2, bowie.sp@coords, bowie.sp$veg)
 colnames(bowie.df) <- c("ud", "x", "y", "veg")
 head(bowie.df)
 
-## will this fix the "subscript out of bounds" problem? no...
+## will "!is.na" fix the "subscript out of bounds" problem? 
 ## I Will need to "clip" the extent at some point, because a bunch of points within the UD have
 ## no covariate values! (Like ones out in the ocean or outside the area that I digitized for the
 ## veg polygons.) For now, just remove "NA" values for veg.
@@ -209,4 +227,38 @@ roze.fit <- ruf.fit(ud ~ factor(veg),
 summary(stevie.fit)
 
 names(stevie.fit)
+
+######################
+## 5. Run RUF using package "ruf"
+######################
+
+all.df <- data.frame(ud.sp$ud_heights.height2, ud.sp@coords, ud.sp$veg)
+colnames(all.df) <- c("ud", "x", "y", "veg")
+head(all.df)
+
+all.df <- all.df[!is.na(all.df$veg),]
+
+## Set initial estimates for range/smoothness
+hval <- c(0.2, 1.5)
+
+## Estimate (unstandardized) coefficients
+all.fit <- ruf.fit(ud ~ factor(veg),
+                     space = ~ x + y,
+                     data=all.df, theta=hval,
+                     name="all porcupines",
+                     standardized=F)
+
+summary(all.fit)
+
+
+## Estimate (standardized) coefficients
+all.fit.2 <- ruf.fit(ud ~ factor(veg),
+                    space = ~ x + y,
+                    data=all.df, theta=hval,
+                    name="all porcupines, standardized",
+                    standardized=T)
+
+summary(all.fit.2)
+
+names(all.fit.2)
 
