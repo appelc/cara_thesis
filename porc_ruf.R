@@ -16,6 +16,15 @@
 ##    a. For UD height at each pixel
 ##    b. For UD height at occurrence points only
 
+### FROM TIM:
+# 1. Convert heights to reasonable numbers
+# 2. Re-run Henrietta on 95%
+# 2a. Run Henrietta wth Veg2
+# 3. See if you can run on other porcupines
+# 4. Theta??
+
+
+
 library(adehabitatHR)
 library(googlesheets)
 library(raster)
@@ -88,12 +97,15 @@ image(all.kud)
 ids <- names(all.kud)
 #porc_uds <- NULL
 
+my.ruf.data.list <- NULL
+
 for(i in ids){
       ud.height.i <- all.kud[[i]]@data$ud
       coords.i <- all.kud[[i]]@coords
       ht.i <- cbind((rep(i, length(ud.height.i))), ud.height.i, coords.i)
       colnames(ht.i) <- c("id", "height", "x", "y")
-     # porc_uds <- rbind(porc_uds, ht.i)
+      my.ruf.data.list[[i]] <- data.frame(ht.i)      
+      # porc_uds <- rbind(porc_uds, ht.i)
       mypath <- file.path("C:","Users","Cara","Documents", "cara_thesis", "RUFs",
                            paste(i, "_ud", ".csv", sep = ""))
       write.csv(ht.i, file=mypath)
@@ -141,12 +153,18 @@ plot(i.raster) ## can I get raster objects for all of them separately?
 ##    a. For UD height at each pixel
 ######################
 
-veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
+veg <- readOGR(dsn=".", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
 
 ## do spatial join using package "sp"
 
 ## load one ud.csv as an example
+henrietta <- my.ruf.data.list[[1]]
+henrietta$height2 <- henrietta$height*100
+henr.sp <- SpatialPointsDataFrame(data.frame(henrietta$x, henrietta$y),
+                                  data=data.frame(henrietta$id, henrietta$height2),
+                                  proj4string=CRS(proj4string(veg)))
+
 stevie <- read.csv("RUFs/15.07_ud.csv")
 head(stevie)
 
@@ -173,6 +191,8 @@ bowie.sp <- SpatialPointsDataFrame(data.frame(bowie$x, bowie$y),
                                    proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## assign veg class to each cell (row)
+henr.sp@data$veg <- over(henr.sp, veg)$Class_3
+
 stevie.sp@data$veg <- over(stevie.sp, veg)$Class
 head(stevie.sp@data)
 
@@ -209,6 +229,9 @@ head(ud.sp@data)
 ## "ruf.fit" doesn't actually need a spdf...
 ## make a data.frame with only ud height, covariates, x, y
 
+henr.df <- data.frame(henr.sp@data$henrietta.height2, henr.sp@coords, henr.sp$veg)
+colnames(henr.df) <- c("ud", "x", "y", "veg")
+
 stevie.df <- data.frame(stevie.sp$stevie.height2, stevie.sp@coords, stevie.sp$veg)
 colnames(stevie.df) <- c("ud", "x", "y", "veg")
 head(stevie.df)
@@ -226,6 +249,7 @@ head(bowie.df)
 ## no covariate values! (Like ones out in the ocean or outside the area that I digitized for the
 ## veg polygons.) For now, just remove "NA" values for veg.
 
+henr.df <- henr.df[!is.na(henr.df$veg),]
 stevie.df <- stevie.df[!is.na(stevie.df$veg),]
 roze.df <- roze.df[!is.na(roze.df$veg),]
 bowie.df <- bowie.df[!is.na(bowie.df$veg),]
@@ -234,10 +258,10 @@ bowie.df <- bowie.df[!is.na(bowie.df$veg),]
 hval <- c(0.2, 1.5)
 
 ## Estimate (unstandardized) coefficients
-bowie.fit <- ruf.fit(ud ~ factor(veg),
+henr.fit <- ruf.fit(ud ~ factor(veg),
                     space = ~ x + y,
-                    data=bowie.df, theta=hval,
-                    name="15.05",
+                    data=henr.df, theta=hval,
+                    name="15.01",
                     standardized=F)
 
 summary(roze.fit)
