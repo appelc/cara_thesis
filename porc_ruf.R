@@ -52,8 +52,28 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
 ## Calculate KUD for all animals
 
 ## href just to compare
-all.kud <- kernelUD(porc.sp, h="href")
-image(all.kud) #href doesn't look great
+#all.kud <- kernelUD(porc.sp, h="href")
+#image(all.kud) #href doesn't look great
+
+## To figure out grid: (code from Ian)
+
+# Cellsize for KDE estimates in meters
+c = 10 ## this is the cell size I want (sq. meters?)
+
+fake.kern <- kernelUD(xy=porc.sp, extent = 1, same4all = TRUE)
+spdf <- raster(as(fake.kern[[1]],"SpatialPixelsDataFrame"))
+eas <- diff(range(spdf@extent[1:2])) ## pulls out x min & max
+nor <- diff(range(spdf@extent[3:4])) ## pulls out y min & max
+if(eas > nor){
+  g <- (eas/c)
+} else {
+  g <- (nor/c)
+}
+
+kern.all <- kernelUD(xy=porc.sp, h = 60, grid = g, extent = 1, same4all = TRUE)
+image(kern.all)
+
+ba.result <- kerneloverlaphr(kern.all, meth="BA", conditional=TRUE)
 
 ## revisit extent parameter (actually calculate for cell ~3-6 meters)
 all.kud <- kernelUD(porc.sp, h=60, extent=1, grid=1000)
