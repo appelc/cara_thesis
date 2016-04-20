@@ -2,3 +2,15 @@
 .Rhistory
 .RData
 .Ruserdata
+.httr-oauth
+*.kml
+*.csv
+*.png
+rasters/
+rasters_old/
+veg_shapefiles/
+RUFs/
+/rasters
+/rasters_old
+/veg_shapefiles/
+/RUFs
