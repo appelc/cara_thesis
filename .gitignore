@@ -3,7 +3,6 @@
 .RData
 .Ruserdata
 .httr-oauth
-<<<<<<< HEAD
 Appel Porcupine.Rproj
 =======
 *.kml
@@ -21,4 +20,3 @@ RUFs/15.05_ud.csv
 RUFs/15.11_ud.csv
 RUFs/15.13_ud.csv
 RUFs/16.18_ud.csv
->>>>>>> 03c8573e61aa807a2742909edcb94862c4927f70
