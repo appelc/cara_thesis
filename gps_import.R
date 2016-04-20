@@ -15,7 +15,7 @@ gps.pts <- gs_title("Porc GPS data")
 gps.pts
 
 # this next step will take a few minutes
-gps <- data.frame(gs_read(ss=gps.pts, ws="porcGPS", is.na(TRUE), range=cell_cols(1:26)))
+gps <- data.frame(gs_read(ss=gps.pts, ws="porcGPS", is.na(TRUE), range=cell_rows(1:10)))
 head(gps)
 
 # check class() for the important columns and change accordingly

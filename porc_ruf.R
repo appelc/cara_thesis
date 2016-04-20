@@ -1,18 +1,35 @@
 #######################################
 ## Trying resource utilization functions (RUFs)
 ## with porcupine data
-##
-## based on RUF lab 8 from Tim's class
 #######################################
-
-library(adehabitatHR)
-library(ruf)
-library(googlesheets)
 
 ## 1. First, load data
 ## 2. Then, need to extract the UD from "adehabitatHR" package
-## 3. Then, create a table with id, coord, and ud height
-## 4. Run RUF using package "ruf"
+##    (set bandwidth, grid, and extent)
+## 3. Then, create a table with id, coord, and UD height
+##    a. Get UD height at each pixel
+##    b. Get UD height at occurrence points only
+## 4. Assign values of covariates (veg class, canopy height) to cells
+##    a. For UD height at each pixel
+##    b. For UD height at occurrece points only
+## 5. Run RUF using package "ruf"
+##    a. For UD height at each pixel
+##    b. For UD height at occurrence points only
+
+### FROM TIM:
+# 1. Convert heights to reasonable numbers
+# 2. Re-run Henrietta on 95%
+# 2a. Run Henrietta wth Veg2
+# 3. See if you can run on other porcupines
+# 4. Theta??
+
+
+
+library(adehabitatHR)
+library(googlesheets)
+library(raster)
+library(rgdal)
+library(ruf)
 
 ######################
 ## 1. First, load data
@@ -41,76 +58,257 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
 ## 2. Then, extract the UD from "adehabitatHR" package
 ######################
 
-## try first with just a couple animals
-hen.locs <- subset(porc.locs, id %in% c("15.01"))
-ha.sp <- SpatialPointsDataFrame(data.frame(hen.locs$utm_e, hen.locs$utm_n),
-                                 data=data.frame(hen.locs$id),
-                                 proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+## Calculate KUD for all animals
 
-## Calculate KDE using kernelUD first and then kernel.area
-ha.kud <- kernelUD(ha.sp, h="LSCV", hlim=c(0.01,2)) #did not converge
-plotLSCV(ha.kud)
-ha.kud <- kernelUD(ha.sp, h="href") #no error
+## href just to compare
+#all.kud <- kernelUD(porc.sp, h="href")
+#image(all.kud) #href doesn't look great
 
-## Now try extent/grid combos
-porc1e <- kernelUD(ha.sp, extent=0.2, grid=1000, h=60) 
-image(porc1e)
-points(ha.sp)
+## To figure out grid: (code from Ian)
 
-## Now do with all
-all.kud <- kernelUD(porc.sp, h="href")
+# Cellsize for KDE estimates in meters
+c = 10 ## this is the cell size I want (sq. meters?)
+
+fake.kern <- kernelUD(xy=porc.sp, extent = 1, same4all = TRUE)
+spdf <- raster(as(fake.kern[[1]],"SpatialPixelsDataFrame"))
+eas <- diff(range(spdf@extent[1:2])) ## pulls out x min & max
+nor <- diff(range(spdf@extent[3:4])) ## pulls out y min & max
+if(eas > nor){
+  g <- (eas/c)
+} else {
+  g <- (nor/c)
+}
+
+kern.all <- kernelUD(xy=porc.sp, h = 60, grid = g, extent = 1, same4all = TRUE)
+image(kern.all)
+
+ba.result <- kerneloverlaphr(kern.all, meth="BA", conditional=TRUE)
+
+## revisit extent parameter (actually calculate for cell ~3-6 meters)
+all.kud <- kernelUD(porc.sp, h=60, extent=1, grid=1000)
 image(all.kud)
 
-all.kud <- kernelUD(porc.sp, h=60, extent=0.2, grid=100)
-image(all.kud)
-points(porc.sp)
+######################
+## 3. Then, create a table with id, coord, and UD height for each porc
+## (too big to do them all in one .csv)
+## a. Get UD height at each pixel
+######################
+
+ids <- names(all.kud)
+#porc_uds <- NULL
+
+my.ruf.data.list <- NULL
+
+for(i in ids){
+      ud.height.i <- all.kud[[i]]@data$ud
+      coords.i <- all.kud[[i]]@coords
+      ht.i <- cbind((rep(i, length(ud.height.i))), ud.height.i, coords.i)
+      colnames(ht.i) <- c("id", "height", "x", "y")
+      my.ruf.data.list[[i]] <- data.frame(ht.i)      
+      # porc_uds <- rbind(porc_uds, ht.i)
+      mypath <- file.path("C:","Users","Cara","Documents", "cara_thesis", "RUFs",
+                           paste(i, "_ud", ".csv", sep = ""))
+      write.csv(ht.i, file=mypath)
+}
+
+######################
+## b. Get UD height at occurrence points only
+######################
+
+## first, convert estUD to raster
+## this combines step 2 (kernelUD)
+
+## I used "writeOGR" and exported shapefiles because I was having trouble with raster(estUDm2spixdf()),
+## But also used raster for "extract." Try GeoTIFF from writeOGR? This is kind of a mess...
+## Can I just create separate raster objects for each animal instead of exporting them w/OGR?
+
+ids <- unique(porc.locs$id)
+ud_heights <- NULL
+
+for(i in ids){
+    i.locs <- subset(porc.locs, id == i)
+    i.locs <- droplevels(i.locs)
+    i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
+                               data=data.frame(i.locs$id),
+                               proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+    i.kud <- kernelUD(i.sp, h=60, extent=1, grid=1000)
+    i.raster <- raster(estUDm2spixdf(i.kud))
+    i.sp$udheight <- extract(i.raster, i.sp)
+    name = paste(i, "raster")
+    filepath <- file.path("C:","Users","Cara","Documents","cara_thesis", "rasters",
+                        paste(i, "raster", ".shp", sep = ""))
+    writeOGR(i.sp, dsn=filepath, layer=name, driver="ESRI Shapefile") ## not a raster!
+    export <- data.frame(i.sp@data$i.locs.id, i.sp@data$udheight, i.sp@coords)
+    ud_heights <- rbind(ud_heights, export)
+    }
+
+head(ud_heights)
+colnames(ud_heights) <- c("id", "ud_height", "x", "y")
+
+plot(ud_heights$y ~ ud_heights$x)
+plot(i.raster) ## can I get raster objects for all of them separately?
+
+######################
+## 4. Assign values of covariates (veg class, canopy height) to cells
+##    a. For UD height at each pixel
+######################
+
+veg <- readOGR(dsn=".", layer="Veg categories CA", verbose=TRUE)
+proj4string(veg) <- proj4string(porc.sp)
+
+## do spatial join using package "sp"
+
+## load one ud.csv as an example
+henrietta <- my.ruf.data.list[[1]]
+henrietta$height2 <- henrietta$height*100
+henr.sp <- SpatialPointsDataFrame(data.frame(henrietta$x, henrietta$y),
+                                  data=data.frame(henrietta$id, henrietta$height2),
+                                  proj4string=CRS(proj4string(veg)))
+
+stevie <- read.csv("RUFs/15.07_ud.csv")
+head(stevie)
+
+roze <- read.csv("RUFs/15.08_ud.csv")
+head(roze)
+
+bowie <- read.csv("RUFs/15.05_ud.csv")
+head(bowie)
+
+## multiply "height" by 100 before converting to spdf **is 100 enough?**
+stevie$height2 <- (stevie$height)*100
+stevie.sp <- SpatialPointsDataFrame(data.frame(stevie$x, stevie$y),
+                                    data=data.frame(stevie$id, stevie$height2),
+                                    proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+roze$height2 <- (roze$height)*100
+roze.sp <- SpatialPointsDataFrame(data.frame(roze$x, roze$y),
+                                  data=data.frame(roze$id, roze$height2),
+                                  proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+bowie$height2 <- (bowie$height)*100
+bowie.sp <- SpatialPointsDataFrame(data.frame(bowie$x, bowie$y),
+                                   data=data.frame(bowie$id, bowie$height2),
+                                   proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+## assign veg class to each cell (row)
+henr.sp@data$veg <- over(henr.sp, veg)$Class_3
+
+stevie.sp@data$veg <- over(stevie.sp, veg)$Class
+head(stevie.sp@data)
+
+roze.sp@data$veg <- over(roze.sp, veg)$Class
+head(roze.sp@data)
+
+bowie.sp@data$veg <- over(bowie.sp, veg)$Class
+head(bowie.sp@data)
+
+######################
+## b. For UD height at occurrence points only
+######################
+
+head(ud_heights)
+
+## the ud_heights object has points for ALL animals, with an "id" column
+
+## multiply "height" by 100 before converting to spdf **is 100 enough?**
+ud_heights$height2 <- (ud_heights$ud_height)*100
+ud.sp <- SpatialPointsDataFrame(data.frame(ud_heights$x, ud_heights$y),
+                                    data=data.frame(ud_heights$id, ud_heights$height2),
+                                    proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+## assign veg class to each cell (row)
+ud.sp@data$veg <- over(ud.sp, veg)$Class
+head(ud.sp@data)
+
+######################
+## 5. Run RUF using package "ruf"
+##    a. For UD height at each pixel
+######################
+
+## continue with spdf created above from csv.ud
+## "ruf.fit" doesn't actually need a spdf...
+## make a data.frame with only ud height, covariates, x, y
+
+henr.df <- data.frame(henr.sp@data$henrietta.height2, henr.sp@coords, henr.sp$veg)
+colnames(henr.df) <- c("ud", "x", "y", "veg")
+
+stevie.df <- data.frame(stevie.sp$stevie.height2, stevie.sp@coords, stevie.sp$veg)
+colnames(stevie.df) <- c("ud", "x", "y", "veg")
+head(stevie.df)
+
+roze.df <- data.frame(roze.sp$roze.height2, roze.sp@coords, roze.sp$veg)
+colnames(roze.df) <- c("ud", "x", "y", "veg")
+head(roze.df)
+
+bowie.df <- data.frame(bowie.sp$bowie.height2, bowie.sp@coords, bowie.sp$veg)
+colnames(bowie.df) <- c("ud", "x", "y", "veg")
+head(bowie.df)
+
+## will "!is.na" fix the "subscript out of bounds" problem? 
+## I Will need to "clip" the extent at some point, because a bunch of points within the UD have
+## no covariate values! (Like ones out in the ocean or outside the area that I digitized for the
+## veg polygons.) For now, just remove "NA" values for veg.
+
+henr.df <- henr.df[!is.na(henr.df$veg),]
+stevie.df <- stevie.df[!is.na(stevie.df$veg),]
+roze.df <- roze.df[!is.na(roze.df$veg),]
+bowie.df <- bowie.df[!is.na(bowie.df$veg),]
+
+## Set initial estimates for range/smoothness
+hval <- c(0.2, 1.5)
+
+## Estimate (unstandardized) coefficients
+henr.fit <- ruf.fit(ud ~ factor(veg),
+                    space = ~ x + y,
+                    data=henr.df, theta=hval,
+                    name="15.01",
+                    standardized=F)
+
+summary(roze.fit)
+
+## error in var(betas) + asycovbeta/con$nresamples : non-coformable arrays
+
+# Estimate (standardized) coefficients
+roze.fit <- ruf.fit(ud ~ factor(veg),
+                    space = ~ x + y,
+                    data=roze.df, theta=hval,
+                    name="15.07 standardized",
+                    standardized=T)
+summary(stevie.fit)
+
+names(stevie.fit)
+
+######################
+## 5. Run RUF using package "ruf"
+######################
+
+all.df <- data.frame(ud.sp$ud_heights.height2, ud.sp@coords, ud.sp$veg)
+colnames(all.df) <- c("ud", "x", "y", "veg")
+head(all.df)
+
+all.df <- all.df[!is.na(all.df$veg),]
+
+## Set initial estimates for range/smoothness
+hval <- c(0.2, 1.5)
+
+## Estimate (unstandardized) coefficients
+all.fit <- ruf.fit(ud ~ factor(veg),
+                     space = ~ x + y,
+                     data=all.df, theta=hval,
+                     name="all porcupines",
+                     standardized=F)
+
+summary(all.fit)
 
 
+## Estimate (standardized) coefficients
+all.fit.2 <- ruf.fit(ud ~ factor(veg),
+                    space = ~ x + y,
+                    data=all.df, theta=hval,
+                    name="all porcupines, standardized",
+                    standardized=T)
 
-dups <- duplicated(porc.sp@coords) # find duplicates in coordinates
-head(dups) # returns list of TRUE/FALSE
-dup.loc <- porc.sp[dups,] # Create table with duplicates only
-dup.loc
+summary(all.fit.2)
 
-non.dups <- porc.sp[!dups,] ## Now remove the duplicates; "non.dups" is our new data name
+names(all.fit.2)
 
-
-
-
-
-
-# Set up graphical window to see multiple graphs
-par(mfrow=c(2,2)) 
-image(porc1a)
-title(main="grid=20, extent=0.2")
-image(porc1b)
-title(main="grid=100, extent=0.2") ## I think I like this the best
-image(porc1c)
-title(main="grid=20, extent=2")
-image(porc1d)
-title(main="grid=100, extent=2")
-image(porc1e)
-title(main="grid=100, extent=1") ## compromise b/c error with 1b (extent too small)
-
-# convert estUD to raster
-porc1e.raster <- raster(estUDm2spixdf(porc1e))
-
-# one way to extract all the values from estUD                        
-ud.height1 <- ha.kud[[1]]@data$ud
-
-# or you can extract just at the coordinates from the raster
-ha.sp$udheight <- extract(porc1e.raster, ha.sp)
-
-
-
-# The actual data.frame that you'd want to create should have
-# the same columns (i.e. the estimates of the "height" of the utilization
-# distribution; the x and y coordinates of each obesrvation; and the
-# values of the independent variables at each coordinate.). The difference
-# is that rather than including just 100 points, you'd include every single
-# cell within the 95% (or 100%) KDE.
-
-# Hint: You can extract the "height" of the UD, once you've created one
-# in adehabitat, with kud@data$ud (where 'kud' is the name of the kernel
-# density estimate you created). You can extract the coordinates with
-# kud@coords. 
