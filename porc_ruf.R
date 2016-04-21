@@ -56,7 +56,7 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
 
 ######################
 ## 2. Then, extract the UD from "adehabitatHR" package
-######################
+###################### 
 
 ## Calculate KUD for all animals
 
