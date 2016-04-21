@@ -54,15 +54,22 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
                                   data=data.frame(porc.locs$id),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
 
+## Load veg data
+veg <- readOGR(dsn=".", layer="Veg categories CA", verbose=TRUE)
+proj4string(veg) <- proj4string(porc.sp)
+
+min.veg <- c(399298.8, 4635961.2)
+max.veg <- c(401920.1, 4644228.8)
+
+veg.x <- c(399298.8, 401920.1)
+veg.y <- c(4635961.2, 4644228.8)
+
+px.veg <- SpatialPoints(data.frame(veg.x, veg.y))
+px.veg <- as(px.veg, "SpatialPixels") #specify cellsize, cells.dim 
+
 ######################
 ## 2. Then, extract the UD from "adehabitatHR" package
 ###################### 
-
-## Calculate KUD for all animals
-
-## href just to compare
-#all.kud <- kernelUD(porc.sp, h="href")
-#image(all.kud) #href doesn't look great
 
 ## To figure out grid: (code from Ian)
 
@@ -79,14 +86,12 @@ if(eas > nor){
   g <- (nor/c)
 }
 
+## Calculate KUD for all animals
 kern.all <- kernelUD(xy=porc.sp, h = 60, grid = g, extent = 1, same4all = TRUE)
 image(kern.all)
 
-ba.result <- kerneloverlaphr(kern.all, meth="BA", conditional=TRUE)
-
-## revisit extent parameter (actually calculate for cell ~3-6 meters)
-all.kud <- kernelUD(porc.sp, h=60, extent=1, grid=1000)
-image(all.kud)
+## Clip the KUD to the extent of the veg layer
+kern.all <- kern.all[veg,]
 
 ######################
 ## 3. Then, create a table with id, coord, and UD height for each porc
@@ -95,20 +100,16 @@ image(all.kud)
 ######################
 
 ids <- names(all.kud)
-#porc_uds <- NULL
 
-my.ruf.data.list <- NULL
+ruf.list <- NULL
 
 for(i in ids){
-      ud.height.i <- all.kud[[i]]@data$ud
-      coords.i <- all.kud[[i]]@coords
+      ud.height.i <- kern.all[[i]]@data$ud
+      coords.i <- kern.all[[i]]@coords
       ht.i <- cbind((rep(i, length(ud.height.i))), ud.height.i, coords.i)
       colnames(ht.i) <- c("id", "height", "x", "y")
-      my.ruf.data.list[[i]] <- data.frame(ht.i)      
-      # porc_uds <- rbind(porc_uds, ht.i)
-      mypath <- file.path("C:","Users","Cara","Documents", "cara_thesis", "RUFs",
-                           paste(i, "_ud", ".csv", sep = ""))
-      write.csv(ht.i, file=mypath)
+      my.ruf.data.list[[i]] <- data.frame(ht.i) 
+      ruf.list[[i]] <- data.frame(ht.i) 
 }
 
 ######################
@@ -157,50 +158,17 @@ veg <- readOGR(dsn=".", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
 
 ## do spatial join using package "sp"
+## multiply "height" by 100 before converting to spdf **is 100 enough?**
 
-## load one ud.csv as an example
-henrietta <- my.ruf.data.list[[1]]
-henrietta$height2 <- henrietta$height*100
-henr.sp <- SpatialPointsDataFrame(data.frame(henrietta$x, henrietta$y),
-                                  data=data.frame(henrietta$id, henrietta$height2),
+## load one UD as an example
+hen.ruf <- ruf.list[[1]]
+hen.ruf$height2 <- hen.ruf$height*10000000000
+hen.sp <- SpatialPointsDataFrame(data.frame(hen.ruf$x, hen.ruf$y),
+                                  data=data.frame(hen.ruf$id, hen.ruf$height2),
                                   proj4string=CRS(proj4string(veg)))
 
-stevie <- read.csv("RUFs/15.07_ud.csv")
-head(stevie)
-
-roze <- read.csv("RUFs/15.08_ud.csv")
-head(roze)
-
-bowie <- read.csv("RUFs/15.05_ud.csv")
-head(bowie)
-
-## multiply "height" by 100 before converting to spdf **is 100 enough?**
-stevie$height2 <- (stevie$height)*100
-stevie.sp <- SpatialPointsDataFrame(data.frame(stevie$x, stevie$y),
-                                    data=data.frame(stevie$id, stevie$height2),
-                                    proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-roze$height2 <- (roze$height)*100
-roze.sp <- SpatialPointsDataFrame(data.frame(roze$x, roze$y),
-                                  data=data.frame(roze$id, roze$height2),
-                                  proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-bowie$height2 <- (bowie$height)*100
-bowie.sp <- SpatialPointsDataFrame(data.frame(bowie$x, bowie$y),
-                                   data=data.frame(bowie$id, bowie$height2),
-                                   proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
-
 ## assign veg class to each cell (row)
-henr.sp@data$veg <- over(henr.sp, veg)$Class_3
-
-stevie.sp@data$veg <- over(stevie.sp, veg)$Class
-head(stevie.sp@data)
-
-roze.sp@data$veg <- over(roze.sp, veg)$Class
-head(roze.sp@data)
-
-bowie.sp@data$veg <- over(bowie.sp, veg)$Class
-head(bowie.sp@data)
+hen.sp@data$veg <- over(hen.sp, veg)$Class_2
 
 ######################
 ## b. For UD height at occurrence points only
@@ -225,58 +193,35 @@ head(ud.sp@data)
 ##    a. For UD height at each pixel
 ######################
 
-## continue with spdf created above from csv.ud
+## continue with spdf created above from ruf.list[[]]
 ## "ruf.fit" doesn't actually need a spdf...
 ## make a data.frame with only ud height, covariates, x, y
 
-henr.df <- data.frame(henr.sp@data$henrietta.height2, henr.sp@coords, henr.sp$veg)
-colnames(henr.df) <- c("ud", "x", "y", "veg")
-
-stevie.df <- data.frame(stevie.sp$stevie.height2, stevie.sp@coords, stevie.sp$veg)
-colnames(stevie.df) <- c("ud", "x", "y", "veg")
-head(stevie.df)
-
-roze.df <- data.frame(roze.sp$roze.height2, roze.sp@coords, roze.sp$veg)
-colnames(roze.df) <- c("ud", "x", "y", "veg")
-head(roze.df)
-
-bowie.df <- data.frame(bowie.sp$bowie.height2, bowie.sp@coords, bowie.sp$veg)
-colnames(bowie.df) <- c("ud", "x", "y", "veg")
-head(bowie.df)
+hen.df <- data.frame(hen.sp@data$hen.ruf.height2, hen.sp@coords, hen.sp$veg)
+colnames(hen.df) <- c("ud", "x", "y", "veg")
 
 ## will "!is.na" fix the "subscript out of bounds" problem? 
 ## I Will need to "clip" the extent at some point, because a bunch of points within the UD have
 ## no covariate values! (Like ones out in the ocean or outside the area that I digitized for the
 ## veg polygons.) For now, just remove "NA" values for veg.
 
-henr.df <- henr.df[!is.na(henr.df$veg),]
-stevie.df <- stevie.df[!is.na(stevie.df$veg),]
-roze.df <- roze.df[!is.na(roze.df$veg),]
-bowie.df <- bowie.df[!is.na(bowie.df$veg),]
+hen.df <- henr.df[!is.na(henr.df$veg),]
+#tst <- subset(hen.df, ud >= (quantile(hen.df$ud, 0.05))) # there are more than 5% zeroes!
+hen.df <- subset(hen.df, ud>0)
 
 ## Set initial estimates for range/smoothness
 hval <- c(0.2, 1.5)
 
 ## Estimate (unstandardized) coefficients
-henr.fit <- ruf.fit(ud ~ factor(veg),
+hen.fit <- ruf.fit(ud ~ factor(veg),
                     space = ~ x + y,
-                    data=henr.df, theta=hval,
+                    data=hen.df, theta=hval,
                     name="15.01",
                     standardized=F)
 
-summary(roze.fit)
+summary(hen.fit)
 
-## error in var(betas) + asycovbeta/con$nresamples : non-coformable arrays
-
-# Estimate (standardized) coefficients
-roze.fit <- ruf.fit(ud ~ factor(veg),
-                    space = ~ x + y,
-                    data=roze.df, theta=hval,
-                    name="15.07 standardized",
-                    standardized=T)
-summary(stevie.fit)
-
-names(stevie.fit)
+names(hen.fit)
 
 ######################
 ## 5. Run RUF using package "ruf"
