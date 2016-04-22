@@ -23,8 +23,6 @@
 # 3. See if you can run on other porcupines
 # 4. Theta??
 
-
-
 library(adehabitatHR)
 library(googlesheets)
 library(raster)
@@ -55,17 +53,18 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Load veg data
-veg <- readOGR(dsn=".", layer="Veg categories CA", verbose=TRUE)
+veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
 
-min.veg <- c(399298.8, 4635961.2)
-max.veg <- c(401920.1, 4644228.8)
+## Load veg extent boundary
+veg.dissolved <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg extent", verbose=TRUE)
+proj4string(veg.dissolved) <- proj4string(porc.sp)
+veg.ext <- as(veg.dissolved, "SpatialLines")
 
-veg.x <- c(399298.8, 401920.1)
-veg.y <- c(4635961.2, 4644228.8)
-
-px.veg <- SpatialPoints(data.frame(veg.x, veg.y))
-px.veg <- as(px.veg, "SpatialPixels") #specify cellsize, cells.dim 
+## Try study area b/c angles in veg extent too small
+study.area <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Area_extent", verbose=TRUE)
+proj4string(study.area) <- proj4string(porc.sp)
+study.ext <- as(study.area, "SpatialLines")
 
 ######################
 ## 2. Then, extract the UD from "adehabitatHR" package
@@ -74,8 +73,29 @@ px.veg <- as(px.veg, "SpatialPixels") #specify cellsize, cells.dim
 ## To figure out grid: (code from Ian)
 
 # Cellsize for KDE estimates in meters
-c = 10 ## this is the cell size I want (sq. meters?)
+ids <- unique(porc.locs$id)
+ud.list <- NULL
 
+for (i in ids){
+  i.locs <- subset(porc.locs, id == i)
+  i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
+                                    data=data.frame(i.locs$id),
+                                    proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+  c = 5
+  fake.kern <- kernelUD(xy = i.sp, extent = 1)
+  spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
+  eas <- diff(range(spdf@extent[1:2]))
+  nor <- diff(range(spdf@extent[3:4]))
+    if(eas > nor){
+      g <- (eas/c)
+    } else {
+      g <- (nor/c)
+    }
+  kern.i <- kernelUD(xy = i.sp, h = 60, grid = g, extent = 1, boundary = study.ext)
+  ud.list[[i]] <- kern.i
+}
+
+c = 5 ## this is the cell size I want (sq. meters?)
 fake.kern <- kernelUD(xy=porc.sp, extent = 1, same4all = TRUE)
 spdf <- raster(as(fake.kern[[1]],"SpatialPixelsDataFrame"))
 eas <- diff(range(spdf@extent[1:2])) ## pulls out x min & max
@@ -87,7 +107,8 @@ if(eas > nor){
 }
 
 ## Calculate KUD for all animals
-kern.all <- kernelUD(xy=porc.sp, h = 60, grid = g, extent = 1, same4all = TRUE)
+kern.all <- kernelUD(xy = porc.sp, h = 60, grid = g, extent = 1, same4all = TRUE, 
+                     boundary = veg.ext)
 image(kern.all)
 
 ## Clip the KUD to the extent of the veg layer
