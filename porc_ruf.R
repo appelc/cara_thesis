@@ -4,20 +4,17 @@
 #######################################
 
 ## 1. First, load data
-## 2. Then, need to extract the UD from "adehabitatHR" package
-##    (set bandwidth, grid, and extent)
+## 2. Then, extract the UD from "adehabitatHR" package (set bandwidth, grid, and extent)
 ## 3. Then, create a table with id, coord, and UD height
-##    a. Get UD height at each pixel
-##    b. Get UD height at occurrence points only
 ## 4. Assign values of covariates (veg class, canopy height) to cells
-##    a. For UD height at each pixel
-##    b. For UD height at occurrece points only
 ## 5. Run RUF using package "ruf"
-##    a. For UD height at each pixel
-##    b. For UD height at occurrence points only
+## 
+## 3a. - 5a.: For UD height at each pixel
+## 3b. - 5b.: For UD height at occurrence points only
 
 ### FROM TIM:
 # 1. Convert heights to reasonable numbers
+## center & scale (x-mean)/sd ... but returns negative numbers for height=0
 # 2. Re-run Henrietta on 95%
 # 2a. Run Henrietta wth Veg2
 # 3. See if you can run on other porcupines
@@ -30,7 +27,7 @@ library(rgdal)
 library(ruf)
 
 ######################
-## 1. First, load data
+## 1. First, load porcupine location data & veg data
 ######################
 gs_ls()
 locs <- gs_title("Porc relocation data")
@@ -70,9 +67,11 @@ study.ext <- as(study.area, "SpatialLines")
 ## 2. Then, extract the UD from "adehabitatHR" package
 ###################### 
 
-## To figure out grid: (code from Ian)
+## Figure out grid & extent based on desired cell size
+## Do for each animal separately 
+## Tried using boundary=study.ext in kernelUD, but angles aren't acceptable
+## (will need to clip grids later, I guess)
 
-# Cellsize for KDE estimates in meters
 ids <- unique(porc.locs$id)
 ud.list <- NULL
 
@@ -81,7 +80,7 @@ for (i in ids){
   i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
                                     data=data.frame(i.locs$id),
                                     proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-  c = 5
+  c = 5   ## desired cell size (meters)
   fake.kern <- kernelUD(xy = i.sp, extent = 1)
   spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
   eas <- diff(range(spdf@extent[1:2]))
@@ -91,123 +90,48 @@ for (i in ids){
     } else {
       g <- (nor/c)
     }
-  kern.i <- kernelUD(xy = i.sp, h = 60, grid = g, extent = 1, boundary = study.ext)
+  kern.i <- kernelUD(xy = i.sp, h = 60, grid = g, extent = 1)
   ud.list[[i]] <- kern.i
 }
 
-c = 5 ## this is the cell size I want (sq. meters?)
-fake.kern <- kernelUD(xy=porc.sp, extent = 1, same4all = TRUE)
-spdf <- raster(as(fake.kern[[1]],"SpatialPixelsDataFrame"))
-eas <- diff(range(spdf@extent[1:2])) ## pulls out x min & max
-nor <- diff(range(spdf@extent[3:4])) ## pulls out y min & max
-if(eas > nor){
-  g <- (eas/c)
-} else {
-  g <- (nor/c)
-}
-
-## Calculate KUD for all animals
-kern.all <- kernelUD(xy = porc.sp, h = 60, grid = g, extent = 1, same4all = TRUE, 
-                     boundary = veg.ext)
-image(kern.all)
-
-## Clip the KUD to the extent of the veg layer
-kern.all <- kern.all[veg,]
+image(ud.list[[17]])
 
 ######################
-## 3. Then, create a table with id, coord, and UD height for each porc
-## (too big to do them all in one .csv)
-## a. Get UD height at each pixel
+## 3. Then, create a list of tables with id, coord, and UD height for each porc
+##    a. For UD height at each pixel
+##    - also include a column for scaling the UD height: (x-mean)/sd
 ######################
-
-ids <- names(all.kud)
-
-ruf.list <- NULL
-
-for(i in ids){
-      ud.height.i <- kern.all[[i]]@data$ud
-      coords.i <- kern.all[[i]]@coords
-      ht.i <- cbind((rep(i, length(ud.height.i))), ud.height.i, coords.i)
-      colnames(ht.i) <- c("id", "height", "x", "y")
-      my.ruf.data.list[[i]] <- data.frame(ht.i) 
-      ruf.list[[i]] <- data.frame(ht.i) 
-}
-
-######################
-## b. Get UD height at occurrence points only
-######################
-
-## first, convert estUD to raster
-## this combines step 2 (kernelUD)
-
-## I used "writeOGR" and exported shapefiles because I was having trouble with raster(estUDm2spixdf()),
-## But also used raster for "extract." Try GeoTIFF from writeOGR? This is kind of a mess...
-## Can I just create separate raster objects for each animal instead of exporting them w/OGR?
 
 ids <- unique(porc.locs$id)
-ud_heights <- NULL
+height.list <- NULL
 
 for(i in ids){
-    i.locs <- subset(porc.locs, id == i)
-    i.locs <- droplevels(i.locs)
-    i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
-                               data=data.frame(i.locs$id),
-                               proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-    i.kud <- kernelUD(i.sp, h=60, extent=1, grid=1000)
-    i.raster <- raster(estUDm2spixdf(i.kud))
-    i.sp$udheight <- extract(i.raster, i.sp)
-    name = paste(i, "raster")
-    filepath <- file.path("C:","Users","Cara","Documents","cara_thesis", "rasters",
-                        paste(i, "raster", ".shp", sep = ""))
-    writeOGR(i.sp, dsn=filepath, layer=name, driver="ESRI Shapefile") ## not a raster!
-    export <- data.frame(i.sp@data$i.locs.id, i.sp@data$udheight, i.sp@coords)
-    ud_heights <- rbind(ud_heights, export)
-    }
+      ud.i <- ud.list[[i]]
+      ud.height.i <- ud.i[[1]]@data$ud
+      coords.i <- ud.i[[i]]@coords
+      ht.coords.i <- data.frame((rep(i, length(ud.height.i))), ud.height.i, coords.i)
+      colnames(ht.coords.i) <- c("id", "height", "x", "y")
+      ht.coords.i$ht.scaled <- ((ht.coords.i$height) - (mean(ht.coords.i$height)))/(sd(ht.coords.i$height))
+      height.list[[i]] <- data.frame(ht.coords.i) 
+}
 
-head(ud_heights)
-colnames(ud_heights) <- c("id", "ud_height", "x", "y")
-
-plot(ud_heights$y ~ ud_heights$x)
-plot(i.raster) ## can I get raster objects for all of them separately?
+min(stormy$ht.scaled)
+max(stormy$ht.scaled)
+stormy.95 <- quantile(stormy$ht.scaled, 0.05)
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
 ##    a. For UD height at each pixel
 ######################
 
-veg <- readOGR(dsn=".", layer="Veg categories CA", verbose=TRUE)
-proj4string(veg) <- proj4string(porc.sp)
-
-## do spatial join using package "sp"
-## multiply "height" by 100 before converting to spdf **is 100 enough?**
-
 ## load one UD as an example
-hen.ruf <- ruf.list[[1]]
-hen.ruf$height2 <- hen.ruf$height*10000000000
-hen.sp <- SpatialPointsDataFrame(data.frame(hen.ruf$x, hen.ruf$y),
-                                  data=data.frame(hen.ruf$id, hen.ruf$height2),
-                                  proj4string=CRS(proj4string(veg)))
+hen.ht <- height.list[[1]]
+hen.sp <- SpatialPointsDataFrame(data.frame(hen.ht$x, hen.ht$y),
+                                 data=data.frame(hen.ht$id, hen.ht$ht.scaled),
+                                 proj4string=CRS(proj4string(veg)))
 
 ## assign veg class to each cell (row)
 hen.sp@data$veg <- over(hen.sp, veg)$Class_2
-
-######################
-## b. For UD height at occurrence points only
-######################
-
-head(ud_heights)
-
-## the ud_heights object has points for ALL animals, with an "id" column
-
-## multiply "height" by 100 before converting to spdf **is 100 enough?**
-ud_heights$height2 <- (ud_heights$ud_height)*100
-ud.sp <- SpatialPointsDataFrame(data.frame(ud_heights$x, ud_heights$y),
-                                    data=data.frame(ud_heights$id, ud_heights$height2),
-                                    proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-## assign veg class to each cell (row)
-ud.sp@data$veg <- over(ud.sp, veg)$Class
-head(ud.sp@data)
 
 ######################
 ## 5. Run RUF using package "ruf"
@@ -244,8 +168,74 @@ summary(hen.fit)
 
 names(hen.fit)
 
+
+############################################################################3
+## STEPS 3-5
+## b. for height at occurrencep points only
+############################################################################3
+
+######################
+## 3. Then, create a table with id, coord, and UD height for each porc
+##    b. For UD height at occurrence points only
+######################
+
+## first, convert estUD to raster
+## this combines step 2 (kernelUD)
+
+## I used "writeOGR" and exported shapefiles because I was having trouble with raster(estUDm2spixdf()),
+## But also used raster for "extract." Try GeoTIFF from writeOGR? This is kind of a mess...
+## Can I just create separate raster objects for each animal instead of exporting them w/OGR?
+
+##### TRY raster(as(...))
+
+ids <- unique(porc.locs$id)
+ud_heights <- NULL
+
+for(i in ids){
+  i.locs <- subset(porc.locs, id == i)
+  i.locs <- droplevels(i.locs)
+  i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
+                                 data=data.frame(i.locs$id),
+                                 proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+  i.kud <- kernelUD(i.sp, h=60, extent=1, grid=1000)
+  i.raster <- raster(estUDm2spixdf(i.kud))
+  i.sp$udheight <- extract(i.raster, i.sp)
+  name = paste(i, "raster")
+  filepath <- file.path("C:","Users","Cara","Documents","cara_thesis", "rasters",
+                        paste(i, "raster", ".shp", sep = ""))
+  writeOGR(i.sp, dsn=filepath, layer=name, driver="ESRI Shapefile") ## not a raster!
+  export <- data.frame(i.sp@data$i.locs.id, i.sp@data$udheight, i.sp@coords)
+  ud_heights <- rbind(ud_heights, export)
+}
+
+head(ud_heights)
+colnames(ud_heights) <- c("id", "ud_height", "x", "y")
+
+plot(ud_heights$y ~ ud_heights$x)
+plot(i.raster) ## can I get raster objects for all of them separately?
+
+######################
+## 4. Assign values of covariates (veg class, canopy height) to cells
+##    b. For UD height at occurrence points only
+######################
+
+head(ud_heights)
+
+## the ud_heights object has points for ALL animals, with an "id" column
+
+## multiply "height" by 100 before converting to spdf **is 100 enough?**
+ud_heights$height2 <- (ud_heights$ud_height)*100
+ud.sp <- SpatialPointsDataFrame(data.frame(ud_heights$x, ud_heights$y),
+                                data=data.frame(ud_heights$id, ud_heights$height2),
+                                proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+## assign veg class to each cell (row)
+ud.sp@data$veg <- over(ud.sp, veg)$Class
+head(ud.sp@data)
+
 ######################
 ## 5. Run RUF using package "ruf"
+##    b. For UD height at occurrence points only
 ######################
 
 all.df <- data.frame(ud.sp$ud_heights.height2, ud.sp@coords, ud.sp$veg)
@@ -259,22 +249,7 @@ hval <- c(0.2, 1.5)
 
 ## Estimate (unstandardized) coefficients
 all.fit <- ruf.fit(ud ~ factor(veg),
-                     space = ~ x + y,
-                     data=all.df, theta=hval,
-                     name="all porcupines",
-                     standardized=F)
-
-summary(all.fit)
-
-
-## Estimate (standardized) coefficients
-all.fit.2 <- ruf.fit(ud ~ factor(veg),
-                    space = ~ x + y,
-                    data=all.df, theta=hval,
-                    name="all porcupines, standardized",
-                    standardized=T)
-
-summary(all.fit.2)
-
-names(all.fit.2)
-
+                   space = ~ x + y,
+                   data=all.df, theta=hval,
+                   name="all porcupines",
+                   standardized=F)
