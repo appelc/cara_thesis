@@ -8,16 +8,23 @@
 ## 3. Then, create a table with id, coord, and UD height
 ## 4. Assign values of covariates (veg class, canopy height) to cells
 ## 5. Run RUF using package "ruf"
-## 
+
 ## 3a. - 5a.: For UD height at each pixel
 ## 3b. - 5b.: For UD height at occurrence points only
 
-## *** Still need to clip grids to extent of study area / veg layer at some point ***
-## *** and find paper to read about Matern correlation parameters (theta)
+### FROM CARA (4/22):
+## i.   is there any way to make boundary work in kernelUD? (not the same as clipping post-hoc?)
+##      -if not, also clip to study area / veg layer extent when I clip to 95% contour!
+## ii.  find paper about Matern correlation parameters (theta)
+## iii. ways to standardize/normalize/scale the UD height (response variable)?
+## iv.  any way to double-check that my cell sizes are all the same for each animal?
+## v.   clean up / consolidate steps... e.g., don't calcluate "norm" and "log" until end of step 4
 
-### FROM TIM:
-# 1. Convert heights to reasonable numbers
-## center & scale (x-mean)/sd ... but returns negative numbers for height=0
+### FROM TIM (4/19):
+## 1. Convert heights to reasonable numbers
+##  -center & scale: (x-mean)/sd ... but returns negative numbers for height=0
+##  -log: but returns negative numbers because all heights are between 0-1
+##  -normalize: (x - min) / (max - min)
 # 2. Re-run Henrietta on 95%
 # 2a. Run Henrietta wth Veg2
 # 3. See if you can run on other porcupines
@@ -70,21 +77,22 @@ proj4string(veg) <- proj4string(porc.sp)
 ## 2. Then, extract the UD from "adehabitatHR" package
 ###################### 
 
-## Calculate grid & extent based on desired cell size
-## Do for each animal separately 
-## I tried using boundary=study.ext in kernelUD, but angles aren't acceptable
-## (will need to clip grids later, I guess)
+## Calculate grid & extent based on desired cell size (# meters on each side)
+## Do this for each animal separately 
+## I tried using "boundary=study.ext" in kernelUD, but angles aren't acceptable
+## (will need to clip grids later; but does it matter for calculating kernelUD?)
 
 ids <- unique(porc.locs$id)
 ud.list <- NULL
+contour.list <- list()
 
 for (i in ids){
-  i.locs <- subset(porc.locs, id == i)
-  i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
-                                    data=data.frame(i.locs$id),
+  locs.i <- subset(porc.locs, id == i)
+  sp.i <- SpatialPointsDataFrame(data.frame(locs.i$utm_e, locs.i$utm_n),
+                                    data=data.frame(locs.i$id),
                                     proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
   c = 5   ## desired cell size (meters)
-  fake.kern <- kernelUD(xy = i.sp, extent = 1)
+  fake.kern <- kernelUD(xy = sp.i, extent = 1)
   spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
   eas <- diff(range(spdf@extent[1:2]))
   nor <- diff(range(spdf@extent[3:4]))
@@ -93,15 +101,18 @@ for (i in ids){
     } else {
       g <- (nor/c)
     }
-  kern.i <- kernelUD(xy = i.sp, h = 60, grid = g, extent = 1)
+  kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1)
+  hr95.i <- getverticeshr.estUDm(kern.i, percent = 95, unin = "m", unout = "km2", standardize = FALSE)
   ud.list[[i]] <- kern.i
+  contour.list[[i]] <- hr95.i
 }
 
-image(ud.list[[11]]) ## check a few... looks good!
+image(ud.list[[17]]) ## check a few... looks good!
+plot(contour.list[[17]], add = TRUE)
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc,
-## and include a column for scaling the UD height: (x-mean)/sd
+## and include a column for normalizing the UD height: (x-min)/(max-min)
 ##    a. For UD height at each pixel
 ######################
 
@@ -114,57 +125,65 @@ for(i in ids){
       coords.i <- ud.i[[i]]@coords
       ht.coords.i <- data.frame((rep(i, length(ud.height.i))), ud.height.i, coords.i)
       colnames(ht.coords.i) <- c("id", "height", "x", "y")
-      ht.coords.i$ht.scaled <- ((ht.coords.i$height) - (mean(ht.coords.i$height)))/(sd(ht.coords.i$height))
+      min <- min(ht.coords.i$height)
+      max <- max(ht.coords.i$height)
+      ht.coords.i$ht.norm <- ((ht.coords.i$height) - min) / (max - min)
+      ht.coords.i$ht.log <- log(ht.coords.i$height)
       height.list[[i]] <- data.frame(ht.coords.i) 
 }
+
+## Turn it into a SPDF and clip to 95% contour (made above) **consider doing 99% instead (Long et al.)**
+## outputs as a list of SPDFs (still containing height, normalized height, etc.)
+## now the range of values should be much better
+
+spdf95.list <- list()
+
+for(i in ids){
+      ht.i <- height.list[[i]]
+      sp.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
+                                     data=data.frame(ht.i$id, ht.i$height, ht.i$ht.norm, ht.i$ht.log),
+                                     proj4string = CRS(proj4string(veg)))
+      contour.i <- contour.list[[i]]
+      spdf.i <- sp.i[contour.i,]
+      spdf95.list[[i]] <- spdf.i
+}
+
+plot(spdf95.list[[1]]) ## look at a couple
+
+## Alternative way to subset 95% based on 5% quantile values:
+## doesn't really work because of so many zeroes
+#ht95.list <- NULL
+#for (i in ids){
+#  ht.i <- height.list[[i]]
+#  x <- quantile(ht.i$ht.log, 0.05)
+#  y <- round(x[[1]], 14) ## next line only works if I round the quantile value
+#  ht95.i <- ht.i[ht.i$ht.norm >= y,]
+#  ht95.list[[i]] <- data.frame(ht95.i)
+#}
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
 ##    a. For UD height at each pixel
 ######################
 
-## the "overlay" function takes a while, so first crop each grid
-## subset based on top 95% (or 99%?) of UD values
-
-## load one UD as an example
-hen.ht <- height.list[[1]]
-x <- quantile(hen.ht$ht.scaled, 0.05) ## or change to 0.01
-y <- round(x[[1]], 14) ## next line only works if I round the quantile value
-hen.ht95 <- hen.ht[hen.ht$ht.scaled >= y,]
-hist(hen.ht95$ht.scaled) ## see the distribution
-
-## now do them all!
-ids <- unique(porc.locs$id)
-ht95.list <- NULL
-
-for (i in ids){
-        ht.i <- height.list[[i]]
-        x <- quantile(ht.i$ht.scaled, 0.05)
-        y <- round(x[[1]], 14) ## next line only works if I round the quantile value
-        ht95.i <- ht.i[ht.i$ht.scaled >= y,]
-        ht95.list[[i]] <- data.frame(ht95.i)
-}
-
 ## now assign veg class to each cell (row)
 ## (and eventually canopy height)
 
-## this loop turns each data frame into a SPDF, does 'overlay' with veg class, 
-## gets rid of cells where veg=NA (there shouldn't be many but they may mess up ruf.fit)
-## then turns it BACK into a data frame for calculating RUF in next step
+## this loop uses the SPDF created in the previous step, does 'overlay' with veg class, 
+## gets rid of cells where veg=NA (there shouldn't be many but they may mess up ruf.fit),
+## then turns it back into a data frame for calculating RUF in next step
 
 ids <- unique(porc.locs$id)
 final.list <- NULL
 
 for (i in ids){
-        ht95.i <- ht95.list[[i]]  
-        i.sp <- SpatialPointsDataFrame(data.frame(ht95.i$x, ht95.i$y),
-                                       data=data.frame(ht95.i$id, ht95.i$ht.scaled),
-                                       proj4string = CRS(proj4string(veg)))
-        i.sp@data$veg <- over(i.sp, veg)$Class_2
-        i.df <- data.frame(i, i.sp@data$ht95.i.ht.scaled, i.sp@coords, i.sp@data$veg)
-        colnames(i.df) <- c("id", "ud", "x", "y", "veg")
-        i.df <- i.df[!is.na(i.df$veg),]
-        final.list[[i]] <- i.df
+        spdf.i <- spdf95.list[[i]]
+        spdf.i@data$veg <- over(spdf.i, veg)$Class_2
+        df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@data$ht.i.ht.norm, spdf.i@data$ht.i.ht.log,
+                           spdf.i@coords, spdf.i@data$veg)
+        colnames(df.i) <- c("id", "ud", "ud_norm", "ud_log", "x", "y", "veg")
+        df.i <- df.i[!is.na(df.i$veg),]
+        final.list[[i]] <- df.i
 }
 
 ######################
@@ -174,12 +193,14 @@ for (i in ids){
 
 ## Need to switch from 64-bit R to 32-bit R now for the "ruf" package... 
 ## *hopefully* everything will be stored in the environment after restarting...
+## (actually, everything so far seems to run OK on 32-bit version)
 
 library(ruf)
 
 ## Now, "final.list" contains the data frames necessary to run ruf.fit
-## (id, standardized ud height for top 95%, x, y, veg class)
+## (id, normalized/log ud height for top 95%, x, y, veg class)
 
+## Set initial estimates for range/smoothness
 hval <- c(0.2, 1.5)
 
 ids <- unique(porc.locs$id)
@@ -187,23 +208,24 @@ ruf.list <- NULL
 betas.list <- NULL
 
 for (i in ids){
-        i.df <- final.list[[i]]
-        i.ruf <- ruf.fit(ud ~ factor(veg),
+        df.i <- final.list[[i]]
+        ruf.i <- ruf.fit(ud_norm ~ factor(veg),
                          space = ~ x + y,
-                         data = test.df, theta = hval,
+                         data = df.i, theta = hval,
                          name = "i",
                          standardized = F)
-        ruf.list[[i]] <- i.ruf
-        betas.list[[i]]  <- i.ruf$beta
+        ruf.list[[i]] <- ruf.i
+        betas.list[[i]]  <- ruf.i$beta
 }
 
-## Set initial estimates for range/smoothness
-hval <- c(0.2, 1.5)
-
+## For Henrietta, all the betas are positive using normalized UD heights. Does this make sense?
+plot(betas.list[[1]])
+## Look at distribution of normalized UD heights:
+hist(final.list[[1]]$ud_norm)
 
 ############################################################################3
 ## STEPS 3-5
-## b. for height at occurrencep points only
+## b. for height at occurrence points only
 ############################################################################3
 
 ######################
@@ -224,19 +246,19 @@ ids <- unique(porc.locs$id)
 ud_heights <- NULL
 
 for(i in ids){
-  i.locs <- subset(porc.locs, id == i)
-  i.locs <- droplevels(i.locs)
-  i.sp <- SpatialPointsDataFrame(data.frame(i.locs$utm_e, i.locs$utm_n),
-                                 data=data.frame(i.locs$id),
+  locs.i <- subset(porc.locs, id == i)
+  locs.i <- droplevels(locs.i)
+  sp.i <- SpatialPointsDataFrame(data.frame(locs.i$utm_e, locs.i$utm_n),
+                                 data=data.frame(locs.i$id),
                                  proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-  i.kud <- kernelUD(i.sp, h=60, extent=1, grid=1000)
+  i.kud <- kernelUD(sp.i, h=60, extent=1, grid=1000)
   i.raster <- raster(estUDm2spixdf(i.kud))
-  i.sp$udheight <- extract(i.raster, i.sp)
+  sp.i$udheight <- extract(i.raster, sp.i)
   name = paste(i, "raster")
   filepath <- file.path("C:","Users","Cara","Documents","cara_thesis", "rasters",
                         paste(i, "raster", ".shp", sep = ""))
-  writeOGR(i.sp, dsn=filepath, layer=name, driver="ESRI Shapefile") ## not a raster!
-  export <- data.frame(i.sp@data$i.locs.id, i.sp@data$udheight, i.sp@coords)
+  writeOGR(sp.i, dsn=filepath, layer=name, driver="ESRI Shapefile") ## not a raster!
+  export <- data.frame(sp.i@data$locs.i.id, sp.i@data$udheight, sp.i@coords)
   ud_heights <- rbind(ud_heights, export)
 }
 
