@@ -12,6 +12,8 @@
 ## 3a. - 5a.: For UD height at each pixel
 ## 3b. - 5b.: For UD height at occurrence points only
 
+## *** Still need to clip grids to extent of study area / veg layer at some point ***
+
 ### FROM TIM:
 # 1. Convert heights to reasonable numbers
 ## center & scale (x-mean)/sd ... but returns negative numbers for height=0
@@ -54,22 +56,22 @@ veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRU
 proj4string(veg) <- proj4string(porc.sp)
 
 ## Load veg extent boundary
-veg.dissolved <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg extent", verbose=TRUE)
-proj4string(veg.dissolved) <- proj4string(porc.sp)
-veg.ext <- as(veg.dissolved, "SpatialLines")
+#veg.dissolved <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg extent", verbose=TRUE)
+#proj4string(veg.dissolved) <- proj4string(porc.sp)
+#veg.ext <- as(veg.dissolved, "SpatialLines")
 
 ## Try study area b/c angles in veg extent too small
-study.area <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Area_extent", verbose=TRUE)
-proj4string(study.area) <- proj4string(porc.sp)
-study.ext <- as(study.area, "SpatialLines")
+#study.area <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Area_extent", verbose=TRUE)
+#proj4string(study.area) <- proj4string(porc.sp)
+#study.ext <- as(study.area, "SpatialLines")
 
 ######################
 ## 2. Then, extract the UD from "adehabitatHR" package
 ###################### 
 
-## Figure out grid & extent based on desired cell size
+## Calculate grid & extent based on desired cell size
 ## Do for each animal separately 
-## Tried using boundary=study.ext in kernelUD, but angles aren't acceptable
+## I tried using boundary=study.ext in kernelUD, but angles aren't acceptable
 ## (will need to clip grids later, I guess)
 
 ids <- unique(porc.locs$id)
@@ -94,12 +96,12 @@ for (i in ids){
   ud.list[[i]] <- kern.i
 }
 
-image(ud.list[[17]])
+image(ud.list[[11]]) ## check a few... looks good!
 
 ######################
-## 3. Then, create a list of tables with id, coord, and UD height for each porc
+## 3. Then, create a list of tables with id, coord, and UD height for each porc,
+## and include a column for scaling the UD height: (x-mean)/sd
 ##    a. For UD height at each pixel
-##    - also include a column for scaling the UD height: (x-mean)/sd
 ######################
 
 ids <- unique(porc.locs$id)
@@ -115,44 +117,77 @@ for(i in ids){
       height.list[[i]] <- data.frame(ht.coords.i) 
 }
 
-min(stormy$ht.scaled)
-max(stormy$ht.scaled)
-stormy.95 <- quantile(stormy$ht.scaled, 0.05)
-
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
 ##    a. For UD height at each pixel
 ######################
 
+## the "overlay" function takes a while, so first crop each grid
+## subset based on top 95% (or 99%?) of UD values
+
 ## load one UD as an example
 hen.ht <- height.list[[1]]
-hen.sp <- SpatialPointsDataFrame(data.frame(hen.ht$x, hen.ht$y),
-                                 data=data.frame(hen.ht$id, hen.ht$ht.scaled),
-                                 proj4string=CRS(proj4string(veg)))
+x <- quantile(hen.ht$ht.scaled, 0.05) ## or change to 0.01
+y <- round(x[[1]], 14) ## next line only works if I round the quantile value
+hen.ht95 <- hen.ht[hen.ht$ht.scaled >= y,]
+hist(hen.ht95$ht.scaled) ## see the distribution
 
-## assign veg class to each cell (row)
-hen.sp@data$veg <- over(hen.sp, veg)$Class_2
+## now do them all!
+ids <- unique(porc.locs$id)
+ht95.list <- NULL
+
+for (i in ids){
+        ht.i <- height.list[[i]]
+        x <- quantile(ht.i$ht.scaled, 0.05)
+        y <- round(x[[1]], 14) ## next line only works if I round the quantile value
+        ht95.i <- ht.i[ht.i$ht.scaled >= y,]
+        ht95.list[[i]] <- data.frame(ht95.i)
+}
+
+## now assign veg class to each cell (row)
+## (and eventually canopy height)
+
+## this loop turns each data frame into a SPDF, does 'overlay' with veg class, 
+## gets rid of cells where veg=NA (there shouldn't be many but they may mess up ruf.fit)
+## then turns it BACK into a data frame for calculating RUF in next step
+
+ids <- unique(porc.locs$id)
+final.list <- NULL
+
+for (i in ids){
+        ht95.i <- ht95.list[[i]]  
+        i.sp <- SpatialPointsDataFrame(data.frame(ht95.i$x, ht95.i$y),
+                                       data=data.frame(ht95.i$id, ht95.i$ht.scaled),
+                                       proj4string = CRS(proj4string(veg)))
+        i.sp@data$veg <- over(i.sp, veg)$Class_2
+        i.df <- data.frame(i, i.sp@data$ht95.i.ht.scaled, i.sp@coords, i.sp@data$veg)
+        colnames(i.df) <- c("id", "ud", "x", "y", "veg")
+        i.df <- i.df[!is.na(i.df$veg),]
+        final.list[[i]] <- i.df
+}
 
 ######################
 ## 5. Run RUF using package "ruf"
 ##    a. For UD height at each pixel
 ######################
 
-## continue with spdf created above from ruf.list[[]]
-## "ruf.fit" doesn't actually need a spdf...
-## make a data.frame with only ud height, covariates, x, y
+## Now, "final.list" contains the data frames necessary to run ruf.fit
+## (id, standardized ud height for top 95%, x, y, veg class)
 
-hen.df <- data.frame(hen.sp@data$hen.ruf.height2, hen.sp@coords, hen.sp$veg)
-colnames(hen.df) <- c("ud", "x", "y", "veg")
+hval <- c(0.2, 1.5) ## still need to track down the paper to find out about these
+ids <- unique(porc.locs$id)
+ruf.list <- NULL
 
-## will "!is.na" fix the "subscript out of bounds" problem? 
-## I Will need to "clip" the extent at some point, because a bunch of points within the UD have
-## no covariate values! (Like ones out in the ocean or outside the area that I digitized for the
-## veg polygons.) For now, just remove "NA" values for veg.
-
-hen.df <- henr.df[!is.na(henr.df$veg),]
-#tst <- subset(hen.df, ud >= (quantile(hen.df$ud, 0.05))) # there are more than 5% zeroes!
-hen.df <- subset(hen.df, ud>0)
+for (i in ids){
+        i.df <- final.list[[i]]
+        i.ruf <- ruf.fit(ud ~ factor(veg),
+                         space = ~ x + y,
+                         data = i.df, theta = hval,
+                         name = "i",
+                         standardized = F)
+        
+  
+}
 
 ## Set initial estimates for range/smoothness
 hval <- c(0.2, 1.5)
