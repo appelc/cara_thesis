@@ -13,6 +13,7 @@
 ## 3b. - 5b.: For UD height at occurrence points only
 
 ## *** Still need to clip grids to extent of study area / veg layer at some point ***
+## *** and find paper to read about Matern correlation parameters (theta)
 
 ### FROM TIM:
 # 1. Convert heights to reasonable numbers
@@ -171,37 +172,33 @@ for (i in ids){
 ##    a. For UD height at each pixel
 ######################
 
+## Need to switch from 64-bit R to 32-bit R now for the "ruf" package... 
+## *hopefully* everything will be stored in the environment after restarting...
+
+library(ruf)
+
 ## Now, "final.list" contains the data frames necessary to run ruf.fit
 ## (id, standardized ud height for top 95%, x, y, veg class)
 
-hval <- c(0.2, 1.5) ## still need to track down the paper to find out about these
+hval <- c(0.2, 1.5)
+
 ids <- unique(porc.locs$id)
 ruf.list <- NULL
+betas.list <- NULL
 
 for (i in ids){
         i.df <- final.list[[i]]
         i.ruf <- ruf.fit(ud ~ factor(veg),
                          space = ~ x + y,
-                         data = i.df, theta = hval,
+                         data = test.df, theta = hval,
                          name = "i",
                          standardized = F)
-        
-  
+        ruf.list[[i]] <- i.ruf
+        betas.list[[i]]  <- i.ruf$beta
 }
 
 ## Set initial estimates for range/smoothness
 hval <- c(0.2, 1.5)
-
-## Estimate (unstandardized) coefficients
-hen.fit <- ruf.fit(ud ~ factor(veg),
-                    space = ~ x + y,
-                    data=hen.df, theta=hval,
-                    name="15.01",
-                    standardized=F)
-
-summary(hen.fit)
-
-names(hen.fit)
 
 
 ############################################################################3
