@@ -34,6 +34,7 @@ library(adehabitatHR)
 library(googlesheets)
 library(raster)
 library(rgdal)
+#install.packages("ruf",repos="http://www.stat.ucla.edu/~handcock")
 library(ruf)
 
 ######################
@@ -60,7 +61,7 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Load veg data
-veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
+veg <- readOGR(dsn="F:/Shapefiles/Veg map", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
 
 ## Load veg extent boundary
@@ -111,8 +112,7 @@ image(ud.list[[17]]) ## check a few... looks good!
 plot(contour.list[[17]], add = TRUE)
 
 ######################
-## 3. Then, create a list of tables with id, coord, and UD height for each porc,
-## and include a column for normalizing the UD height: (x-min)/(max-min)
+## 3. Then, create a list of tables with id, coord, and UD height for each porc
 ##    a. For UD height at each pixel
 ######################
 
@@ -125,14 +125,11 @@ for(i in ids){
       coords.i <- ud.i[[i]]@coords
       ht.coords.i <- data.frame((rep(i, length(ud.height.i))), ud.height.i, coords.i)
       colnames(ht.coords.i) <- c("id", "height", "x", "y")
-      min <- min(ht.coords.i$height)
-      max <- max(ht.coords.i$height)
-      ht.coords.i$ht.norm <- ((ht.coords.i$height) - min) / (max - min)
-      ht.coords.i$ht.log <- log(ht.coords.i$height)
       height.list[[i]] <- data.frame(ht.coords.i) 
 }
 
-## Turn it into a SPDF and clip to 95% contour (made above) **consider doing 99% instead (Long et al.)**
+## Turn each into a SPDF and clip to individual 95% contours (made above) 
+## **consider doing 99% instead (Long et al.)**
 ## outputs as a list of SPDFs (still containing height, normalized height, etc.)
 ## now the range of values should be much better
 
@@ -141,14 +138,15 @@ spdf95.list <- list()
 for(i in ids){
       ht.i <- height.list[[i]]
       sp.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
-                                     data=data.frame(ht.i$id, ht.i$height, ht.i$ht.norm, ht.i$ht.log),
+                                     data=data.frame(ht.i$id, ht.i$height),
                                      proj4string = CRS(proj4string(veg)))
       contour.i <- contour.list[[i]]
-      spdf.i <- sp.i[contour.i,]
+      spdf.i <- sp.i[contour.i,] # clip to 95% contour
+      spdf.i <- spdf.i[veg,] # also clip to extent of veg layer
       spdf95.list[[i]] <- spdf.i
 }
 
-plot(spdf95.list[[1]]) ## look at a couple
+plot(spdf95.list[[17]]) ## look at a couple
 
 ## Alternative way to subset 95% based on 5% quantile values:
 ## doesn't really work because of so many zeroes
@@ -163,6 +161,8 @@ plot(spdf95.list[[1]]) ## look at a couple
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
+## and include a column for normalizing the UD height: (x-min)/(max-min)
+## (and/or log of height)
 ##    a. For UD height at each pixel
 ######################
 
@@ -179,10 +179,13 @@ final.list <- NULL
 for (i in ids){
         spdf.i <- spdf95.list[[i]]
         spdf.i@data$veg <- over(spdf.i, veg)$Class_2
-        df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@data$ht.i.ht.norm, spdf.i@data$ht.i.ht.log,
-                           spdf.i@coords, spdf.i@data$veg)
-        colnames(df.i) <- c("id", "ud", "ud_norm", "ud_log", "x", "y", "veg")
+        df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@coords, spdf.i@data$veg)
+        colnames(df.i) <- c("id", "ud", "x", "y", "veg")
         df.i <- df.i[!is.na(df.i$veg),]
+        min <- min(df.i$ud)
+        max <- max(df.i$ud)
+        df.i$ud_norm <- ((df.i$ud) - min) / (max - min)
+        df.i$ud_log <- log(df.i$ud)      
         final.list[[i]] <- df.i
 }
 
@@ -204,19 +207,23 @@ library(ruf)
 hval <- c(0.2, 1.5)
 
 ids <- unique(porc.locs$id)
-ruf.list <- NULL
-betas.list <- NULL
+ruf.list <- list()
+betas.list <- list()
 
 for (i in ids){
         df.i <- final.list[[i]]
         ruf.i <- ruf.fit(ud_norm ~ factor(veg),
                          space = ~ x + y,
                          data = df.i, theta = hval,
-                         name = "i",
+                         name = i,
                          standardized = F)
         ruf.list[[i]] <- ruf.i
         betas.list[[i]]  <- ruf.i$beta
+        path <- file.path("F:", "RUF", paste(i, "_betas", ".csv", sep = ""))
+        write.csv(betas.list[[i]], file=path)
 }
+
+write.csv(betas.list[[1]], file="15.01_ruf_betas_042316")
 
 ## For Henrietta, all the betas are positive using normalized UD heights. Does this make sense?
 plot(betas.list[[1]])
