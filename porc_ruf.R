@@ -19,6 +19,7 @@
 ## iii. ways to standardize/normalize/scale the UD height (response variable)?
 ## iv.  any way to double-check that my cell sizes are all the same for each animal?
 ## v.   clean up / consolidate steps... e.g., don't calcluate "norm" and "log" until end of step 4
+## vi.  standardized vs. unstandardized parameters? 
 
 ### FROM TIM (4/19):
 ## 1. Convert heights to reasonable numbers
@@ -49,14 +50,17 @@ porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
 porc.locs$utm_e <- as.numeric(porc.locs$utm_e)
 porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
 
+## Keep summer-only points
+porc.locs.s <- subset(porc.locs, date < "2015-11-01")
+
 ## Keep only animals with >= 5 locations
-n <- table(porc.locs$id)
-porc.locs <- subset(porc.locs, id %in% names(n[n >= 5]), drop=TRUE)
-hr.data <- droplevels(porc.locs)
+n <- table(porc.locs.s$id)
+porc.locs.s <- subset(porc.locs.s, id %in% names(n[n >= 5]), drop=TRUE)
+porc.locs.s <- droplevels(porc.locs.s)
 
 ## Turn this into a Spatial Points Data Frame
-porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
-                                  data=data.frame(porc.locs$id),
+porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs.s$utm_e, porc.locs.s$utm_n),
+                                  data=data.frame(porc.locs.s$id),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Load veg data
@@ -204,24 +208,32 @@ library(ruf)
 hval <- c(0.2, 1.5)
 
 ids <- unique(porc.locs$id)
-ruf.list <- NULL
-betas.list <- NULL
+ruf.list <- list()
+betas.list <- list()
 
 for (i in ids){
         df.i <- final.list[[i]]
         ruf.i <- ruf.fit(ud_norm ~ factor(veg),
                          space = ~ x + y,
                          data = df.i, theta = hval,
-                         name = "i",
+                         name = i,
                          standardized = F)
         ruf.list[[i]] <- ruf.i
         betas.list[[i]]  <- ruf.i$beta
 }
 
+write.csv(betas.list[[16]], file="16.18_ruf_betas_042216.csv")
+
 ## For Henrietta, all the betas are positive using normalized UD heights. Does this make sense?
 plot(betas.list[[1]])
 ## Look at distribution of normalized UD heights:
 hist(final.list[[1]]$ud_norm)
+
+
+
+
+
+
 
 ############################################################################3
 ## STEPS 3-5
