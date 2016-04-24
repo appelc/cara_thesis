@@ -223,10 +223,9 @@ for (i in ids){
         write.csv(betas.list[[i]], file=path)
 }
 
-write.csv(betas.list[[1]], file="15.01_ruf_betas_042316")
-
-## For Henrietta, all the betas are positive using normalized UD heights. Does this make sense?
+## Look at beta values for each animal (figure out how to get averages from betas.list)
 plot(betas.list[[1]])
+
 ## Look at distribution of normalized UD heights:
 hist(final.list[[1]]$ud_norm)
 
