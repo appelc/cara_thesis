@@ -46,9 +46,18 @@ porc.locs <- data.frame(gs_read(ss=locs, ws="Relocations", is.na(TRUE), range=ce
 colnames(porc.locs) <- c("date", "id", "sess", "type", "time", "az", "utm_e", "utm_n", 
                              "obs", "loc", "pos", "notes", "xvar", "yvar", "cov", "error")
 porc.locs <- subset(porc.locs, type %in% c("V","V*","P","P*","L"))
-porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
 porc.locs$utm_e <- as.numeric(porc.locs$utm_e)
 porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
+porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
+
+## is this all necessary?
+#porc.locs$date <- as.Date("1900-01-01") + porc.locs$date
+#porc.locs$time <- chron(times = porc.locs$time, format = c(times = "h:m:s"))
+#porc.locs$posix <- paste(porc.locs$Date, porc.locs$Time)
+#gps$posix <- as.POSIXct(strptime(gps$posix, "%Y-%m-%d %H:%M:%S"), tz="America/Los_Angeles")
+
+## OPTIONAL: only keep summer locations (before Nov 1)
+summer.locs <- subset(porc.locs, date < "2015-11-01")
 
 ## Keep only animals with >= 5 locations
 n <- table(porc.locs$id)
