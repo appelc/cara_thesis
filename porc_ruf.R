@@ -58,11 +58,12 @@ porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
 
 ## OPTIONAL: only keep summer locations (before Nov 1)
 summer.locs <- subset(porc.locs, date < "2015-11-01")
+#porc.locs <- summer.locs
 
 ## Keep only animals with >= 5 locations
 n <- table(porc.locs$id)
 porc.locs <- subset(porc.locs, id %in% names(n[n >= 5]), drop=TRUE)
-hr.data <- droplevels(porc.locs)
+porc.locs <- droplevels(porc.locs)
 
 ## Turn this into a Spatial Points Data Frame
 porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
@@ -70,7 +71,7 @@ porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Load veg data
-veg <- readOGR(dsn="F:/Shapefiles/Veg map", layer="Veg categories CA", verbose=TRUE)
+veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
 
 ## Load veg extent boundary
@@ -117,8 +118,8 @@ for (i in ids){
   contour.list[[i]] <- hr95.i
 }
 
-image(ud.list[[17]]) ## check a few... looks good!
-plot(contour.list[[17]], add = TRUE)
+image(ud.list[[7]]) ## check a few... looks good!
+plot(contour.list[[7]], add = TRUE)
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
@@ -155,7 +156,7 @@ for(i in ids){
       spdf95.list[[i]] <- spdf.i
 }
 
-plot(spdf95.list[[17]]) ## look at a couple
+plot(spdf95.list[[7]]) ## look at a couple
 
 ## Alternative way to subset 95% based on 5% quantile values:
 ## doesn't really work because of so many zeroes
@@ -213,11 +214,13 @@ library(ruf)
 ## (id, normalized/log ud height for top 95%, x, y, veg class)
 
 ## Set initial estimates for range/smoothness
-hval <- c(0.2, 1.5)
+hval <- c(0.1, 1.5)
 
 ids <- unique(porc.locs$id)
 ruf.list <- list()
 betas.list <- list()
+thetas.list <- list()
+fit.list <- list()
 
 for (i in ids){
         df.i <- final.list[[i]]
@@ -228,6 +231,8 @@ for (i in ids){
                          standardized = F)
         ruf.list[[i]] <- ruf.i
         betas.list[[i]]  <- ruf.i$beta
+        thetas.list[[i]] <- ruf.i$theta
+        fit.list[[i]] <- ruf.i$fit
         path <- file.path("F:", "RUF", paste(i, "_betas", ".csv", sep = ""))
         write.csv(betas.list[[i]], file=path)
 }
