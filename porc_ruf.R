@@ -57,7 +57,7 @@ porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
 #gps$posix <- as.POSIXct(strptime(gps$posix, "%Y-%m-%d %H:%M:%S"), tz="America/Los_Angeles")
 
 ## OPTIONAL: only keep summer locations (before Nov 1)
-summer.locs <- subset(porc.locs, date < "2015-11-01")
+sum.locs <- subset(porc.locs, date < "2015-11-01")
 #porc.locs <- summer.locs
 
 ## Keep only animals with >= 5 locations
@@ -65,10 +65,18 @@ n <- table(porc.locs$id)
 porc.locs <- subset(porc.locs, id %in% names(n[n >= 5]), drop=TRUE)
 porc.locs <- droplevels(porc.locs)
 
+n <- table(sum.locs$id)
+sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
+sum.locs <- droplevels(sum.locs)
+
 ## Turn this into a Spatial Points Data Frame
 porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
                                   data=data.frame(porc.locs$id),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
+                                 data=data.frame(sum.locs$id),
+                                 proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Load veg data
 veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
@@ -118,8 +126,35 @@ for (i in ids){
   contour.list[[i]] <- hr95.i
 }
 
-image(ud.list[[7]]) ## check a few... looks good!
-plot(contour.list[[7]], add = TRUE)
+image(ud.list[[10]]) ## check a few... looks good!
+plot(contour.list[[10]], add = TRUE)
+
+## Now create kernelUDs based on just the summer points
+## But I'll crop them to the extent of the whole contour later
+
+sum.ud.list <- NULL
+sum.contour.list <- list()
+
+for (i in ids){
+  locs.i <- subset(sum.locs, id == i)
+  sp.i <- SpatialPointsDataFrame(data.frame(locs.i$utm_e, locs.i$utm_n),
+                                 data=data.frame(locs.i$id),
+                                 proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+  c = 5   ## desired cell size (meters)
+  fake.kern <- kernelUD(xy = sp.i, extent = 1)
+  spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
+  eas <- diff(range(spdf@extent[1:2]))
+  nor <- diff(range(spdf@extent[3:4]))
+  if(eas > nor){
+    g <- (eas/c)
+  } else {
+    g <- (nor/c)
+  }
+  kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1)
+  hr95.i <- getverticeshr.estUDm(kern.i, percent = 95, unin = "m", unout = "km2", standardize = FALSE)
+  sum.ud.list[[i]] <- kern.i
+  sum.contour.list[[i]] <- hr95.i
+}
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
@@ -214,7 +249,7 @@ library(ruf)
 ## (id, normalized/log ud height for top 95%, x, y, veg class)
 
 ## Set initial estimates for range/smoothness
-hval <- c(0.1, 1.5)
+hval <- c(0.2, 1.5)
 
 ids <- unique(porc.locs$id)
 ruf.list <- list()
