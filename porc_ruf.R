@@ -107,6 +107,8 @@ contour.list <- list()
 
 for (i in ids){
   locs.i <- subset(porc.locs, id == i)
+  # add rows for just the summer points, add id column to distinguish full from summer points
+  
   sp.i <- SpatialPointsDataFrame(data.frame(locs.i$utm_e, locs.i$utm_n),
                                     data=data.frame(locs.i$id),
                                     proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
@@ -115,15 +117,24 @@ for (i in ids){
   spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
   eas <- diff(range(spdf@extent[1:2]))
   nor <- diff(range(spdf@extent[3:4]))
+ 
+# Extent of spatialpointsdataframe:  
+#  eas <- diff(range(extent(sp.i)[1:2]))
+#  nor <- diff(range(extent(sp.i)[3:4]))
     if(eas > nor){
       g <- (eas/c)
     } else {
       g <- (nor/c)
     }
-  kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1)
+  # calculate UD on both IDs, same4all = 1
+  kern.i <- kernelUD(xy = sp.i, h = 60, grid = 843, extent = 1)
   hr95.i <- getverticeshr.estUDm(kern.i, percent = 95, unin = "m", unout = "km2", standardize = FALSE)
+  # save full ud here:
   ud.list[[i]] <- kern.i
+  # add line here to save summer ud:
+  # _____ 
   contour.list[[i]] <- hr95.i
+  # clip summer ud here while you have it
 }
 
 image(ud.list[[10]]) ## check a few... looks good!
@@ -151,6 +162,7 @@ for (i in ids){
     g <- (nor/c)
   }
   kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1)
+  kern.i <- kernelUD(xy = sp.i, )
   hr95.i <- getverticeshr.estUDm(kern.i, percent = 95, unin = "m", unout = "km2", standardize = FALSE)
   sum.ud.list[[i]] <- kern.i
   sum.contour.list[[i]] <- hr95.i
