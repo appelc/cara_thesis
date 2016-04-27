@@ -48,10 +48,11 @@ colnames(porc.locs) <- c("date", "id", "sess", "type", "time", "az", "utm_e", "u
 porc.locs <- subset(porc.locs, type %in% c("V","V*","P","P*","L"))
 porc.locs$utm_e <- as.numeric(porc.locs$utm_e)
 porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
-#porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
+#porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y") ## check date format before running line 51 or 52
 #porc.locs$date <- as.Date(porc.locs$date, origin = as.Date("1899-12-30"))
 
 ## OPTIONAL: only keep summer locations (before Nov 1)
+## could even incorporate this into the for-loop below
 sum.locs <- subset(porc.locs, date < "2015-11-01")
 
 ## Keep only animals with >= 5 locations
@@ -144,78 +145,45 @@ for (i in ids){
 ##    a. For UD height at each pixel
 ######################
 
-ids <- unique(porc.locs$id)
-height.list <- NULL
+ids <- unique(sum.locs$id)
+height.list <- list()
 
 for(i in ids){
       ud.i <- ud.clipped.list[[i]]
-      ud.height.i <- ud.i[[1]]@data$ud
-      coords.i <- ud.i[[i]]@coords
+      ud.height.i <- ud.i$ud
+      coords.i <- ud.i@coords
       ht.coords.i <- data.frame((rep(i, length(ud.height.i))), ud.height.i, coords.i)
       colnames(ht.coords.i) <- c("id", "height", "x", "y")
       height.list[[i]] <- data.frame(ht.coords.i) 
 }
 
-## Turn each into a SPDF and clip to individual 95% contours (made above) 
-## **consider doing 99% instead (Long et al.)**
-## outputs as a list of SPDFs (still containing height, normalized height, etc.)
-## now the range of values should be much better
-
-## *** DON'T NEED TO DO THIS ANYMORE B/C CLIPPED IN STEP 2
-## *** BUT NOW NEED TO CREATE SPDF BEFORE VEG OVERLAY IN STEP 4
-#spdf95.list <- list()
-
-#for(i in ids){
-#      ht.i <- height.list[[i]]
-#      sp.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
-#                                     data=data.frame(ht.i$id, ht.i$height),
-#                                     proj4string = CRS(proj4string(veg)))
-#      contour.i <- contour.list[[i]]
-#      spdf.i <- sp.i[contour.i,] # clip to 95% contour
-#      spdf.i <- spdf.i[veg,] # also clip to extent of veg layer
-#      spdf95.list[[i]] <- spdf.i
-#}
-
-plot(spdf95.list[[7]]) ## look at a couple
-
-## Alternative way to subset 95% based on 5% quantile values:
-## doesn't really work because of so many zeroes
-#ht95.list <- NULL
-#for (i in ids){
-#  ht.i <- height.list[[i]]
-#  x <- quantile(ht.i$ht.log, 0.05)
-#  y <- round(x[[1]], 14) ## next line only works if I round the quantile value
-#  ht95.i <- ht.i[ht.i$ht.norm >= y,]
-#  ht95.list[[i]] <- data.frame(ht95.i)
-#}
-
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
-## and include a column for normalizing the UD height: (x-min)/(max-min)
-## (and/or log of height)
+## and include a column for normalizing the UD height: (x - min) / (max - min)
+## (and/or log of UD height)
 ##    a. For UD height at each pixel
 ######################
 
-## now assign veg class to each cell (row)
-## (and eventually canopy height)
-
-## this loop uses the SPDF created in the previous step, does 'overlay' with veg class, 
+## this loop creates a SPDF for each animal, does 'overlay' with veg class, 
 ## gets rid of cells where veg=NA (there shouldn't be many but they may mess up ruf.fit),
 ## then turns it back into a data frame for calculating RUF in next step
 
-ids <- unique(porc.locs$id)
-final.list <- NULL
+ids <- unique(sum.locs$id)
+final.list <- list()
 
 for (i in ids){
-        spdf.i <- spdf95.list[[i]]
+        ht.i <- height.list[[i]]
+        sp.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
+                                       data=data.frame(ht.i$id, ht.i$height),
+                                       proj4string = CRS(proj4string(veg)))
         spdf.i@data$veg <- over(spdf.i, veg)$Class_2
         df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@coords, spdf.i@data$veg)
-        colnames(df.i) <- c("id", "ud", "x", "y", "veg")
+        colnames(df.i) <- c("id", "height", "x", "y", "veg")
         df.i <- df.i[!is.na(df.i$veg),]
-        min <- min(df.i$ud)
-        max <- max(df.i$ud)
-        df.i$ud_norm <- ((df.i$ud) - min) / (max - min)
-        df.i$ud_log <- log(df.i$ud)      
+        min <- min(df.i$height)
+        max <- max(df.i$height)
+        df.i$height_norm <- ((df.i$height) - min) / (max - min)
+        df.i$height_log <- log(df.i$height)      
         final.list[[i]] <- df.i
 }
 
@@ -224,49 +192,44 @@ for (i in ids){
 ##    a. For UD height at each pixel
 ######################
 
-## Need to switch from 64-bit R to 32-bit R now for the "ruf" package... 
-## *hopefully* everything will be stored in the environment after restarting...
-## (actually, everything so far seems to run OK on 32-bit version)
-
-library(ruf)
-
 ## Now, "final.list" contains the data frames necessary to run ruf.fit
-## (id, normalized/log ud height for top 95%, x, y, veg class)
+## (id, normalized/log UD height for top 95%, x, y, veg class)
 
 ## Set initial estimates for range/smoothness
 hval <- c(0.2, 1.5)
 
-ids <- unique(porc.locs$id)
+ids <- unique(sum.locs$id)
 ruf.list <- list()
-betas.list <- list()
 thetas.list <- list()
 fit.list <- list()
+betas.table <- NULL
 
 for (i in ids){
         df.i <- final.list[[i]]
-        ruf.i <- ruf.fit(ud_norm ~ factor(veg),
+        ruf.i <- ruf.fit(height_norm ~ factor(veg),
                          space = ~ x + y,
-                         data = df.i, theta = hval,
-                         name = i,
-                         standardized = F)
+                         data = df.i, name = i, standardized = F, theta = hval,
+                         fixrange = FALSE, fixsmoothness = FALSE)
         ruf.list[[i]] <- ruf.i
-        betas.list[[i]]  <- ruf.i$beta
         thetas.list[[i]] <- ruf.i$theta
         fit.list[[i]] <- ruf.i$fit
-        path <- file.path("F:", "RUF", paste(i, "_betas", ".csv", sep = ""))
-        write.csv(betas.list[[i]], file=path)
+        betas.table <- bind_rows(betas.table, ruf.i$beta)
+        #path <- file.path("F:", "RUF", paste(i, "_betas", ".csv", sep = ""))
+        #write.csv(betas.list[[i]], file=path)
 }
 
-## Look at beta values for each animal (figure out how to get averages from betas.list)
-plot(betas.list[[1]])
+## Look at beta values for each animal (then get averages from betas.table)
+plot(ruf.i$beta)
+barplot(ruf.i$beta, names.arg=ruf.i$veg, ylab="beta coefficient", xlab="veg class", las=2)
 
 ## Look at distribution of normalized UD heights:
-hist(final.list[[1]]$ud_norm)
+hist(final.list[[3]]$height_norm)
 
-############################################################################3
+
+############################################################################
 ## STEPS 3-5
 ## b. for height at occurrence points only
-############################################################################3
+############################################################################
 
 ######################
 ## 3. Then, create a table with id, coord, and UD height for each porc
