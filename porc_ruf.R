@@ -48,17 +48,11 @@ colnames(porc.locs) <- c("date", "id", "sess", "type", "time", "az", "utm_e", "u
 porc.locs <- subset(porc.locs, type %in% c("V","V*","P","P*","L"))
 porc.locs$utm_e <- as.numeric(porc.locs$utm_e)
 porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
-porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
-
-## is this all necessary?
-#porc.locs$date <- as.Date("1900-01-01") + porc.locs$date
-#porc.locs$time <- chron(times = porc.locs$time, format = c(times = "h:m:s"))
-#porc.locs$posix <- paste(porc.locs$Date, porc.locs$Time)
-#gps$posix <- as.POSIXct(strptime(gps$posix, "%Y-%m-%d %H:%M:%S"), tz="America/Los_Angeles")
+#porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y")
+#porc.locs$date <- as.Date(porc.locs$date, origin = as.Date("1899-12-30"))
 
 ## OPTIONAL: only keep summer locations (before Nov 1)
 sum.locs <- subset(porc.locs, date < "2015-11-01")
-#porc.locs <- summer.locs
 
 ## Keep only animals with >= 5 locations
 n <- table(porc.locs$id)
@@ -69,7 +63,8 @@ n <- table(sum.locs$id)
 sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
 sum.locs <- droplevels(sum.locs)
 
-## Turn this into a Spatial Points Data Frame
+## Turn these into a Spatial Points Data Frame
+## I never actually use these!! Other than to set projection for "veg"...
 porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
                                   data=data.frame(porc.locs$id),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
@@ -82,91 +77,67 @@ sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
 veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
 
-## Load veg extent boundary
-#veg.dissolved <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg extent", verbose=TRUE)
-#proj4string(veg.dissolved) <- proj4string(porc.sp)
-#veg.ext <- as(veg.dissolved, "SpatialLines")
-
-## Try study area b/c angles in veg extent too small
-#study.area <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Area_extent", verbose=TRUE)
-#proj4string(study.area) <- proj4string(porc.sp)
-#study.ext <- as(study.area, "SpatialLines")
-
 ######################
 ## 2. Then, extract the UD from "adehabitatHR" package
 ###################### 
 
 ## Calculate grid & extent based on desired cell size (# meters on each side)
-## Do this for each animal separately 
-## I tried using "boundary=study.ext" in kernelUD, but angles aren't acceptable
-## (will need to clip grids later; but does it matter for calculating kernelUD?)
+## For for each animal separately 
+
+## Also calculate KUD based on summer points ONLY, but within grid of the extent
+## for all of the points. Then clip to the 99% contour for all the points, as well
+## as the veg layer extent.
 
 ids <- unique(porc.locs$id)
-ud.list <- NULL
+ud.list <- list()
+ud.summer.list <- list()
+ud.clipped.list <- list()
 contour.list <- list()
+contour.summer.list <- list()
 
 for (i in ids){
-  locs.i <- subset(porc.locs, id == i)
-  # add rows for just the summer points, add id column to distinguish full from summer points
-  
-  sp.i <- SpatialPointsDataFrame(data.frame(locs.i$utm_e, locs.i$utm_n),
-                                    data=data.frame(locs.i$id),
+        locs.i <- subset(porc.locs, id == i)
+        locs.i$id_season <- rep(paste(i, "_all", sep = ""), nrow(locs.i))
+        locs.sum.i <- subset(sum.locs, id == i)
+        locs.sum.i$id_season <- rep(paste(i, "_sum", sep = ""), nrow(locs.sum.i))
+        locs.all.i <- rbind(locs.i, locs.sum.i)
+        sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
+                                    data=data.frame(locs.all.i$id_season),
                                     proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-  c = 5   ## desired cell size (meters)
-  fake.kern <- kernelUD(xy = sp.i, extent = 1)
-  spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
-  eas <- diff(range(spdf@extent[1:2]))
-  nor <- diff(range(spdf@extent[3:4]))
- 
+        c = 5   ## desired cell size (meters)
+        fake.kern <- kernelUD(xy = sp.i, extent = 1)
+        spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
+        eas <- diff(range(spdf@extent[1:2]))
+        nor <- diff(range(spdf@extent[3:4]))
+        if(eas > nor){
+          g <- (eas/c)
+        } else {
+          g <- (nor/c)
+        }
+  
+        # calculate UD on both IDs ("all" and "summer") with same4all = TRUE
+        kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
+        cont99.i <- getverticeshr.estUD(kern.i[[1]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
+        cont99.sum.i <- getverticeshr.estUD(kern.i[[2]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
+        
+        # clip summer UD to 99% contour from ALL points (not just summer), and veg extent
+        sum.ud.i <- (kern.i[[2]])[cont99.i,]
+        sum.ud.i <- sum.ud.i[veg,]
+      
+        # save full UD, summer UD, and clipped UD:
+        ud.list[[i]] <- kern.i[[1]]
+        ud.summer.list[[i]] <- kern.i[[2]]
+        ud.clipped.list[[i]] <- sum.ud.i ##it's now a "SpatialPixelsDataFrame"
+        
+        # and save the contours:
+        contour.list[[i]] <- cont99.i
+        contour.summer.list[[i]] <- cont99.i
+}
+
+# Why is grid size not exactly 5? Try calculating "g" based on SPDF, not raster
 # Extent of spatialpointsdataframe:  
 #  eas <- diff(range(extent(sp.i)[1:2]))
 #  nor <- diff(range(extent(sp.i)[3:4]))
-    if(eas > nor){
-      g <- (eas/c)
-    } else {
-      g <- (nor/c)
-    }
-  # calculate UD on both IDs, same4all = 1
-  kern.i <- kernelUD(xy = sp.i, h = 60, grid = 843, extent = 1)
-  hr95.i <- getverticeshr.estUDm(kern.i, percent = 95, unin = "m", unout = "km2", standardize = FALSE)
-  # save full ud here:
-  ud.list[[i]] <- kern.i
-  # add line here to save summer ud:
-  # _____ 
-  contour.list[[i]] <- hr95.i
-  # clip summer ud here while you have it
-}
-
-image(ud.list[[10]]) ## check a few... looks good!
-plot(contour.list[[10]], add = TRUE)
-
-## Now create kernelUDs based on just the summer points
-## But I'll crop them to the extent of the whole contour later
-
-sum.ud.list <- NULL
-sum.contour.list <- list()
-
-for (i in ids){
-  locs.i <- subset(sum.locs, id == i)
-  sp.i <- SpatialPointsDataFrame(data.frame(locs.i$utm_e, locs.i$utm_n),
-                                 data=data.frame(locs.i$id),
-                                 proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-  c = 5   ## desired cell size (meters)
-  fake.kern <- kernelUD(xy = sp.i, extent = 1)
-  spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
-  eas <- diff(range(spdf@extent[1:2]))
-  nor <- diff(range(spdf@extent[3:4]))
-  if(eas > nor){
-    g <- (eas/c)
-  } else {
-    g <- (nor/c)
-  }
-  kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1)
-  kern.i <- kernelUD(xy = sp.i, )
-  hr95.i <- getverticeshr.estUDm(kern.i, percent = 95, unin = "m", unout = "km2", standardize = FALSE)
-  sum.ud.list[[i]] <- kern.i
-  sum.contour.list[[i]] <- hr95.i
-}
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
@@ -177,7 +148,7 @@ ids <- unique(porc.locs$id)
 height.list <- NULL
 
 for(i in ids){
-      ud.i <- ud.list[[i]]
+      ud.i <- ud.clipped.list[[i]]
       ud.height.i <- ud.i[[1]]@data$ud
       coords.i <- ud.i[[i]]@coords
       ht.coords.i <- data.frame((rep(i, length(ud.height.i))), ud.height.i, coords.i)
@@ -190,18 +161,20 @@ for(i in ids){
 ## outputs as a list of SPDFs (still containing height, normalized height, etc.)
 ## now the range of values should be much better
 
-spdf95.list <- list()
+## *** DON'T NEED TO DO THIS ANYMORE B/C CLIPPED IN STEP 2
+## *** BUT NOW NEED TO CREATE SPDF BEFORE VEG OVERLAY IN STEP 4
+#spdf95.list <- list()
 
-for(i in ids){
-      ht.i <- height.list[[i]]
-      sp.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
-                                     data=data.frame(ht.i$id, ht.i$height),
-                                     proj4string = CRS(proj4string(veg)))
-      contour.i <- contour.list[[i]]
-      spdf.i <- sp.i[contour.i,] # clip to 95% contour
-      spdf.i <- spdf.i[veg,] # also clip to extent of veg layer
-      spdf95.list[[i]] <- spdf.i
-}
+#for(i in ids){
+#      ht.i <- height.list[[i]]
+#      sp.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
+#                                     data=data.frame(ht.i$id, ht.i$height),
+#                                     proj4string = CRS(proj4string(veg)))
+#      contour.i <- contour.list[[i]]
+#      spdf.i <- sp.i[contour.i,] # clip to 95% contour
+#      spdf.i <- spdf.i[veg,] # also clip to extent of veg layer
+#      spdf95.list[[i]] <- spdf.i
+#}
 
 plot(spdf95.list[[7]]) ## look at a couple
 
