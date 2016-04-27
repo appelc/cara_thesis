@@ -12,23 +12,16 @@
 ## 3a. - 5a.: For UD height at each pixel
 ## 3b. - 5b.: For UD height at occurrence points only
 
-### FROM CARA (4/22):
-## i.   is there any way to make boundary work in kernelUD? (not the same as clipping post-hoc?)
-##      -if not, also clip to study area / veg layer extent when I clip to 95% contour!
-## ii.  find paper about Matern correlation parameters (theta)
-## iii. ways to standardize/normalize/scale the UD height (response variable)?
-## iv.  any way to double-check that my cell sizes are all the same for each animal?
-## v.   clean up / consolidate steps... e.g., don't calcluate "norm" and "log" until end of step 4
+## FROM CARA (4/26):
+## - change cell size from 5 to 10 meters (& figure out why this doesn't calculate correctly)
+## - changed fix.smoothness = FALSE and fix.range = FALSE in ruf.fit code, but still need to 
+##   specify starting values for the ML estimates (can't do theta = NULL)
+## - low priority: figure out date/time formatting
 
-### FROM TIM (4/19):
-## 1. Convert heights to reasonable numbers
-##  -center & scale: (x-mean)/sd ... but returns negative numbers for height=0
-##  -log: but returns negative numbers because all heights are between 0-1
-##  -normalize: (x - min) / (max - min)
-# 2. Re-run Henrietta on 95%
-# 2a. Run Henrietta wth Veg2
-# 3. See if you can run on other porcupines
-# 4. Theta??
+## NEXT STEPS:
+## 1. run summer RUFs for all animals
+## 2. incorporate GPS data and do the same
+## 3. make nice figures (grid/contour example, KDE home ranges, mean beta parameter plots)
 
 library(adehabitatHR)
 library(googlesheets)
@@ -65,7 +58,7 @@ sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
 sum.locs <- droplevels(sum.locs)
 
 ## Turn these into a Spatial Points Data Frame
-## I never actually use these!! Other than to set projection for "veg"...
+## Delete... I never actually use these! Other than to assign projection for "veg"
 porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
                                   data=data.frame(porc.locs$id),
                                   proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
@@ -75,7 +68,7 @@ sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
                                  proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## Load veg data
-veg <- readOGR(dsn="D:/GIS DATA/Veg map", layer="Veg categories CA", verbose=TRUE)
+veg <- readOGR(dsn="shapefiles", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
 
 ######################
@@ -105,7 +98,7 @@ for (i in ids){
         sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
                                     data=data.frame(locs.all.i$id_season),
                                     proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-        c = 5   ## desired cell size (meters)
+        c = 10   ## desired cell size (meters)
         fake.kern <- kernelUD(xy = sp.i, extent = 1)
         spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
         eas <- diff(range(spdf@extent[1:2]))
