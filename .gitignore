@@ -7,16 +7,3 @@ Appel Porcupine.Rproj
 =======
 *.kml
 *.csv
-*.png
-rasters/
-rasters_old/
-veg_shapefiles/
-RUFs/
-/rasters
-/rasters_old
-/veg_shapefiles/
-/RUFs
-RUFs/15.05_ud.csv
-RUFs/15.11_ud.csv
-RUFs/15.13_ud.csv
-RUFs/16.18_ud.csv
