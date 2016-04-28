@@ -82,7 +82,7 @@ proj4string(veg) <- proj4string(porc.sp)
 ## for all of the points. Then clip to the 99% contour for all the points, as well
 ## as the veg layer extent.
 
-ids <- unique(porc.locs$id)
+ids <- unique(sum.locs$id)
 ud.list <- list()
 ud.summer.list <- list()
 ud.clipped.list <- list()
@@ -150,6 +150,10 @@ for(i in ids){
       height.list[[i]] <- data.frame(ht.coords.i) 
 }
 
+## wireframe plots! better function to get lat/lon or put it on a map?
+# library(lattice)
+# wireframe(height ~ x * y, data=height.list[[14]], drape=TRUE, main="15.14 UD height")
+
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
 ## and include a column for normalizing the UD height: (x - min) / (max - min)
@@ -166,7 +170,7 @@ final.list <- list()
 
 for (i in ids){
         ht.i <- height.list[[i]]
-        sp.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
+        spdf.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
                                        data=data.frame(ht.i$id, ht.i$height),
                                        proj4string = CRS(proj4string(veg)))
         spdf.i@data$veg <- over(spdf.i, veg)$Class_2
@@ -195,7 +199,8 @@ ids <- unique(sum.locs$id)
 ruf.list <- list()
 thetas.list <- list()
 fit.list <- list()
-betas.table <- NULL
+betas.list <- list()
+#betas.table <- NULL #figure out with "bind_rows" in dplyr
 
 for (i in ids){
         df.i <- final.list[[i]]
@@ -206,18 +211,43 @@ for (i in ids){
         ruf.list[[i]] <- ruf.i
         thetas.list[[i]] <- ruf.i$theta
         fit.list[[i]] <- ruf.i$fit
-        betas.table <- bind_rows(betas.table, ruf.i$beta)
+        betas.list[[i]] <- ruf.i$beta
         #path <- file.path("F:", "RUF", paste(i, "_betas", ".csv", sep = ""))
         #write.csv(betas.list[[i]], file=path)
 }
 
-## Look at beta values for each animal (then get averages from betas.table)
-plot(ruf.i$beta)
-barplot(ruf.i$beta, names.arg=ruf.i$veg, ylab="beta coefficient", xlab="veg class", las=2)
+## should have made the betas data.frames instead of named vectors.
+## do that here:
 
-## Look at distribution of normalized UD heights:
-hist(final.list[[3]]$height_norm)
+betas.list2 <- betas.list # make a copy just in case
 
+ids <- unique(sum.locs$id)
+for (i in ids){
+        betas.list2[[i]] <- data.frame(veg_class=names(betas.list2[[i]]), 
+                                           beta=betas.list2[[i]], row.names=NULL)
+        }
+
+## and combine them all into one data table:
+betas.table.long <- rbindlist(betas.list2, fill = TRUE, 
+                        use.names = TRUE, idcol = TRUE)
+betas.table <- reshape(betas.table.long, timevar = "veg_class",
+                        idvar = c(".id"), direction = "wide")
+colnames(betas.table) <- c("id", "intercept", "beachgrass_dune", "brackish_marsh",
+                        "coastal_scrub", "conifer_forest", "fresh_marsh",
+                        "fruit", "meadow", "pasture", "shrub_swale",
+                        "wooded_swale")
+write.csv(betas.table, "csvs/ruf_betas_042816.csv")
+
+## calculate n, mean, sd
+veg_classes <- names(betas.table)[-1]
+
+for (i in veg_classes){
+        veg_class <- betas.table[,i]
+
+}
+x <- mean(betas.table$beachgrass_dune, na.rm=TRUE)
+n <- sum(betas.table$brackish_marsh != "NA")
+n
 
 ############################################################################
 ## STEPS 3-5
