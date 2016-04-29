@@ -90,9 +90,9 @@ contour.list <- list()
 contour.summer.list <- list()
 
 for (i in ids){
-        locs.i <- subset(porc.locs, id == i)
+        locs.i <- porc.locs[porc.locs$id == i,]
         locs.i$id_season <- rep(paste(i, "_all", sep = ""), nrow(locs.i))
-        locs.sum.i <- subset(sum.locs, id == i)
+        locs.sum.i <- sum.locs[sum.locs$id == i,]
         locs.sum.i$id_season <- rep(paste(i, "_sum", sep = ""), nrow(locs.sum.i))
         locs.all.i <- rbind(locs.i, locs.sum.i)
         sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
@@ -111,11 +111,11 @@ for (i in ids){
   
         # calculate UD on both IDs ("all" and "summer") with same4all = TRUE
         kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
-        cont99.i <- getverticeshr.estUD(kern.i[[1]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
+        cont99.all.i <- getverticeshr.estUD(kern.i[[1]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
         cont99.sum.i <- getverticeshr.estUD(kern.i[[2]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
         
         # clip summer UD to 99% contour from ALL points (not just summer), and veg extent
-        sum.ud.i <- (kern.i[[2]])[cont99.i,]
+        sum.ud.i <- (kern.i[[2]])[cont99.all.i,]
         sum.ud.i <- sum.ud.i[veg,]
       
         # save full UD, summer UD, and clipped UD:
@@ -124,8 +124,8 @@ for (i in ids){
         ud.clipped.list[[i]] <- sum.ud.i ##it's now a "SpatialPixelsDataFrame"
         
         # and save the contours:
-        contour.list[[i]] <- cont99.i
-        contour.summer.list[[i]] <- cont99.i
+        contour.list[[i]] <- cont99.all.i
+        contour.summer.list[[i]] <- cont99.sum.i
 }
 
 # Why is grid size not exactly 5? Try calculating "g" based on SPDF, not raster
@@ -248,6 +248,13 @@ for (i in veg_classes){
 x <- mean(betas.table$beachgrass_dune, na.rm=TRUE)
 n <- sum(betas.table$brackish_marsh != "NA")
 n
+
+## what do the heights look like?
+par(mfrow=c(3,5))
+for(i in 1:14){
+    hist(final.list[[i]]$height_norm, main=i)
+}
+
 
 ############################################################################
 ## STEPS 3-5
