@@ -204,7 +204,7 @@ betas.list <- list()
 
 for (i in ids){
         df.i <- final.list[[i]]
-        ruf.i <- ruf.fit(height_norm ~ factor(veg),
+        ruf.i <- ruf.fit(height ~ factor(veg),
                          space = ~ x + y,
                          data = df.i, name = i, standardized = F, theta = hval,
                          fixrange = FALSE, fixsmoothness = FALSE)
@@ -226,6 +226,8 @@ for (i in ids){
         betas.list2[[i]] <- data.frame(veg_class=names(betas.list2[[i]]), 
                                            beta=betas.list2[[i]], row.names=NULL)
         }
+
+stormy_non_norm <- data.frame(veg_class=veg_names, beta=ruf.i$beta, row.names=NULL)
 
 ## and combine them all into one data table:
 betas.table.long <- rbindlist(betas.list2, fill = TRUE, 
