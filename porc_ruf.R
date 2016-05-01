@@ -20,14 +20,21 @@
 
 ## NEXT STEPS:
 ## 1. run summer RUFs for all animals
+## - figure out height scaling (log, normalize, scale, etc.)
 ## 2. incorporate GPS data and do the same
 ## 3. make nice figures (grid/contour example, KDE home ranges, mean beta parameter plots)
+
+## if on lab computer:
+##install.packages("adehabitatHR")
+#install.packages("googlesheets")
+#install.packages("raster")
+#install.packages("rgdal")
+#install.packages("ruf",repos="http://www.stat.ucla.edu/~handcock")
 
 library(adehabitatHR)
 library(googlesheets)
 library(raster)
 library(rgdal)
-#install.packages("ruf",repos="http://www.stat.ucla.edu/~handcock")
 library(ruf)
 
 ######################
@@ -41,7 +48,8 @@ colnames(porc.locs) <- c("date", "id", "sess", "type", "time", "az", "utm_e", "u
 porc.locs <- subset(porc.locs, type %in% c("V","V*","P","P*","L"))
 porc.locs$utm_e <- as.numeric(porc.locs$utm_e)
 porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
-#porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y") ## check date format before running line 51 or 52
+## check date format before running line 51 or 52
+#porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y") 
 #porc.locs$date <- as.Date(porc.locs$date, origin = as.Date("1899-12-30"))
 
 ## OPTIONAL: only keep summer locations (before Nov 1)
@@ -128,6 +136,12 @@ for (i in ids){
         contour.summer.list[[i]] <- cont99.sum.i
 }
 
+## it's cool to look at a few here:
+image(ud.clipped.list[[6]])
+plot(veg, add=TRUE)
+plot(contour.list[[6]], add=TRUE, border="blue", lwd=2)
+plot(contour.summer.list[[6]], add=TRUE, border="green", lwd=2)
+
 # Why is grid size not exactly 5? Try calculating "g" based on SPDF, not raster
 # Extent of spatialpointsdataframe:  
 #  eas <- diff(range(extent(sp.i)[1:2]))
@@ -151,8 +165,8 @@ for(i in ids){
 }
 
 ## wireframe plots! better function to get lat/lon or put it on a map?
-# library(lattice)
-# wireframe(height ~ x * y, data=height.list[[14]], drape=TRUE, main="15.14 UD height")
+library(lattice)
+wireframe(height ~ x * y, data=height.list[[6]], drape=TRUE, main="15.06 summer UD height")
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
@@ -184,6 +198,13 @@ for (i in ids){
         final.list[[i]] <- df.i
 }
 
+## another cool figure:
+plot(spdf.i)
+plot(veg, add=TRUE)
+plot(contour.list[[14]], add=TRUE, border="blue", lwd=2)
+points(utm_n ~ utm_e, data=porc.locs[porc.locs$id == "15.14",], col="red", pch=16)
+points(utm_n ~ utm_e, data=sum.locs[sum.locs$id == "15.14",], col="green", pch=16)
+
 ######################
 ## 5. Run RUF using package "ruf"
 ##    a. For UD height at each pixel
@@ -196,30 +217,30 @@ for (i in ids){
 hval <- c(0.2, 1.5)
 
 ids <- unique(sum.locs$id)
-ruf.list <- list()
-thetas.list <- list()
-fit.list <- list()
-betas.list <- list()
+ruf.list.log <- list()
+thetas.list.log <- list()
+fit.list.log <- list()
+betas.list.log <- list()
 #betas.table <- NULL #figure out with "bind_rows" in dplyr
 
 for (i in ids){
         df.i <- final.list[[i]]
-        ruf.i <- ruf.fit(height ~ factor(veg),
+        ruf.i <- ruf.fit(ud_log ~ factor(veg),
                          space = ~ x + y,
                          data = df.i, name = i, standardized = F, theta = hval,
                          fixrange = FALSE, fixsmoothness = FALSE)
-        ruf.list[[i]] <- ruf.i
-        thetas.list[[i]] <- ruf.i$theta
-        fit.list[[i]] <- ruf.i$fit
-        betas.list[[i]] <- ruf.i$beta
-        #path <- file.path("F:", "RUF", paste(i, "_betas", ".csv", sep = ""))
-        #write.csv(betas.list[[i]], file=path)
+        ruf.list.log[[i]] <- ruf.i
+        thetas.list.log[[i]] <- ruf.i$theta
+        fit.list.log[[i]] <- ruf.i$fit
+        betas.list.log[[i]] <- ruf.i$beta
+        path <- file.path("U:", "cara_thesis", "csvs", paste(i, "_betas_log", ".csv", sep = ""))
+        write.csv(betas.list[[i]], file=path)
 }
 
 ## should have made the betas data.frames instead of named vectors.
 ## do that here:
 
-betas.list2 <- betas.list # make a copy just in case
+betas.list2 <- betas.list.log # make a copy just in case
 
 ids <- unique(sum.locs$id)
 for (i in ids){
@@ -227,118 +248,34 @@ for (i in ids){
                                            beta=betas.list2[[i]], row.names=NULL)
         }
 
-stormy_non_norm <- data.frame(veg_class=veg_names, beta=ruf.i$beta, row.names=NULL)
-
 ## and combine them all into one data table:
-betas.table.long <- rbindlist(betas.list2, fill = TRUE, 
+log_betas.table.long <- rbindlist(betas.list2, fill = TRUE, 
                         use.names = TRUE, idcol = TRUE)
-betas.table <- reshape(betas.table.long, timevar = "veg_class",
+log_betas.table <- reshape(log_betas.table.long, timevar = "veg_class",
                         idvar = c(".id"), direction = "wide")
-colnames(betas.table) <- c("id", "intercept", "beachgrass_dune", "brackish_marsh",
+colnames(log_betas.table) <- c("id", "intercept", "beachgrass_dune", "brackish_marsh",
                         "coastal_scrub", "conifer_forest", "fresh_marsh",
                         "fruit", "meadow", "pasture", "shrub_swale",
                         "wooded_swale")
-write.csv(betas.table, "csvs/ruf_betas_042816.csv")
+write.csv(log_betas.table, "csvs/ruf_log_betas_042916.csv")
 
 ## calculate n, mean, sd
-veg_classes <- names(betas.table)[-1]
+veg_classes <- names(log_betas.table)[-1]
 
 for (i in veg_classes){
-        veg_class <- betas.table[,i]
+        veg_class <- log_betas.table[,i]
 
 }
+
+## finish this...
 x <- mean(betas.table$beachgrass_dune, na.rm=TRUE)
 n <- sum(betas.table$brackish_marsh != "NA")
 n
 
-## what do the heights look like?
+## what does the distribution of heights look like?
 par(mfrow=c(3,5))
 for(i in 1:14){
-    hist(final.list[[i]]$height_norm, main=i)
+    hist(final.list[[i]]$height_log, main=i)
 }
 
 
-############################################################################
-## STEPS 3-5
-## b. for height at occurrence points only
-############################################################################
-
-######################
-## 3. Then, create a table with id, coord, and UD height for each porc
-##    b. For UD height at occurrence points only
-######################
-
-## first, convert estUD to raster
-## this combines step 2 (kernelUD)
-
-## I used "writeOGR" and exported shapefiles because I was having trouble with raster(estUDm2spixdf()),
-## But also used raster for "extract." Try GeoTIFF from writeOGR? This is kind of a mess...
-## Can I just create separate raster objects for each animal instead of exporting them w/OGR?
-
-##### TRY raster(as(...))
-
-ids <- unique(porc.locs$id)
-ud_heights <- NULL
-
-for(i in ids){
-  locs.i <- subset(porc.locs, id == i)
-  locs.i <- droplevels(locs.i)
-  sp.i <- SpatialPointsDataFrame(data.frame(locs.i$utm_e, locs.i$utm_n),
-                                 data=data.frame(locs.i$id),
-                                 proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-  i.kud <- kernelUD(sp.i, h=60, extent=1, grid=1000)
-  i.raster <- raster(estUDm2spixdf(i.kud))
-  sp.i$udheight <- extract(i.raster, sp.i)
-  name = paste(i, "raster")
-  filepath <- file.path("C:","Users","Cara","Documents","cara_thesis", "rasters",
-                        paste(i, "raster", ".shp", sep = ""))
-  writeOGR(sp.i, dsn=filepath, layer=name, driver="ESRI Shapefile") ## not a raster!
-  export <- data.frame(sp.i@data$locs.i.id, sp.i@data$udheight, sp.i@coords)
-  ud_heights <- rbind(ud_heights, export)
-}
-
-head(ud_heights)
-colnames(ud_heights) <- c("id", "ud_height", "x", "y")
-
-plot(ud_heights$y ~ ud_heights$x)
-plot(i.raster) ## can I get raster objects for all of them separately?
-
-######################
-## 4. Assign values of covariates (veg class, canopy height) to cells
-##    b. For UD height at occurrence points only
-######################
-
-head(ud_heights)
-
-## the ud_heights object has points for ALL animals, with an "id" column
-
-## multiply "height" by 100 before converting to spdf **is 100 enough?**
-ud_heights$height2 <- (ud_heights$ud_height)*100
-ud.sp <- SpatialPointsDataFrame(data.frame(ud_heights$x, ud_heights$y),
-                                data=data.frame(ud_heights$id, ud_heights$height2),
-                                proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-## assign veg class to each cell (row)
-ud.sp@data$veg <- over(ud.sp, veg)$Class
-head(ud.sp@data)
-
-######################
-## 5. Run RUF using package "ruf"
-##    b. For UD height at occurrence points only
-######################
-
-all.df <- data.frame(ud.sp$ud_heights.height2, ud.sp@coords, ud.sp$veg)
-colnames(all.df) <- c("ud", "x", "y", "veg")
-head(all.df)
-
-all.df <- all.df[!is.na(all.df$veg),]
-
-## Set initial estimates for range/smoothness
-hval <- c(0.2, 1.5)
-
-## Estimate (unstandardized) coefficients
-all.fit <- ruf.fit(ud ~ factor(veg),
-                   space = ~ x + y,
-                   data=all.df, theta=hval,
-                   name="all porcupines",
-                   standardized=F)
