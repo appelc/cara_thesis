@@ -96,6 +96,7 @@ ud.summer.list <- list()
 ud.clipped.list <- list()
 contour.list <- list()
 contour.summer.list <- list()
+kde.areas <- NULL
 
 for (i in ids){
         locs.i <- porc.locs[porc.locs$id == i,]
@@ -119,6 +120,11 @@ for (i in ids){
   
         # calculate UD on both IDs ("all" and "summer") with same4all = TRUE
         kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
+        kde.i <- kernel.area(kern.i, percent = c(50, 90, 95, 99), unin = "m", unout = "km2", standardize = FALSE)
+        data.frame(kde.i, row.names = c("50", "90", "95", "99"))
+        #kde.areas <- cbind(kde.areas, kde.i)
+        
+        # make 99% contours (full and summer)
         cont99.all.i <- getverticeshr.estUD(kern.i[[1]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
         cont99.sum.i <- getverticeshr.estUD(kern.i[[2]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
         
@@ -137,15 +143,21 @@ for (i in ids){
 }
 
 ## it's cool to look at a few here:
-image(ud.clipped.list[[6]])
+image(ud.clipped.list[[2]])
 plot(veg, add=TRUE)
-plot(contour.list[[6]], add=TRUE, border="blue", lwd=2)
-plot(contour.summer.list[[6]], add=TRUE, border="green", lwd=2)
+plot(contour.list[[2]], add=TRUE, border="blue", lwd=2)
+plot(contour.summer.list[[2]], add=TRUE, border="green", lwd=2)
 
 # Why is grid size not exactly 5? Try calculating "g" based on SPDF, not raster
 # Extent of spatialpointsdataframe:  
 #  eas <- diff(range(extent(sp.i)[1:2]))
 #  nor <- diff(range(extent(sp.i)[3:4]))
+
+
+kde.areas.wide <- reshape(kde.areas, varying = NULL, direction = "long")
+
+write.csv(kde.areas, "csvs/kde_areas_043016.csv")
+
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
