@@ -10,6 +10,7 @@ library(googlesheets)
 library(rgdal)
 library(raster)
 library(rgeos)
+library(data.table)
 library(R2WinBUGS)
 bugs.dir <- "C:/Programs/WinBUGS14"
 
@@ -66,27 +67,25 @@ kernel.all <- kernelUD(xy = all.loc.sp, h = 60, grid = g, extent = 1)
 image(kernel.all) #how do they look?
 cont99.all <- getverticeshr.estUD(kernel.all[[1]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
 
-## and clip to "veg" extent
+## clip contour to "veg" extent
 cont99.clipped <- gIntersection(veg_ext, cont99.all, byid = FALSE, drop_lower_td = TRUE)
 
 ## so "cont99.clipped" is the extent within which we will sample "available" points
 
-## also clip "sum.sp" to veg_extent (there are a few outside
+## also clip "sum.sp" to veg_extent (there are a few points outside)
 sum.sp.clipped <- sum.sp[veg_ext,]
 
-## Create random points within the available study area
-## use "nrow()" to make sure we have the same no. of avail. pts as used pts
-## we're using summer points only now
+## Create random points within thestudy area (clipped 99% contour for all animals)
+## use "nrow()" to make sure we have the same no. of avail. pts as used pts (during the summer)
 sum.avail.pts <- spsample(cont99.clipped, n=(nrow(sum.sp.clipped)), type="random")
 
 ## plot everything:
-plot(veg_ext) # need to fix annoying holes...
+plot(veg_ext) # need to fix annoying holes between polygons...
 plot(cont99.clipped, add=TRUE, col="green")
 plot(sum.sp.clipped, add=TRUE, pch=16, cex=0.4)
 plot(sum.avail.pts, add=TRUE, col="red", pch=16, cex=0.4)
 
-## Now add 0/1 for pres/avail
-## and add columns for "season"
+## Now add 0/1 column for pres/avail
 sum.pts <- data.frame(sum.sp.clipped$sum.locs.id, sum.sp.clipped@coords) # convert to data.frame
 sum.pts$pres <- rep(1, nrow(sum.pts)) # add a 1 for all presence (used) pts
 sum.pts$pres_name <- rep("present", nrow(sum.pts)) # add a column for description
@@ -114,8 +113,24 @@ points.sp <- points.sp[!is.na(points.sp$veg),] # get rid of veg=NA
 
 points.df <- data.frame(points.sp@data)
 colnames(points.df) <- c("id", "pres", "veg")
-test <- aggregate(points.df, FUN = "sum", by = unique(veg$Class_2)) ## fix
-View(test, FUN="sum")
+
+data.table(points.df)
+
+
+
+sumpts.test <- aggregate.data.frame(points.sp, list("id", "veg"), FUN=sum)
+test <- table(points.df)
+test <- aggregate(cbind(pres, veg) ~ id, data=points.df, FUN = sum)
+
+for (i in veg){
+        i
+}
+
+hen.scrub <- points.df[points.df$id == "15.01" & points.df$veg == "Coastal scrub",]
+hen.scrub.sum <- sum(hen.scrub$pres)
+
+hen.scrub <- sum(hen.scrub$pres)
+hen.scrub
 
 ###############
 
