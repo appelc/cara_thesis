@@ -156,12 +156,12 @@ for (i in ids){
                                    proj4string = CRS(proj4string(veg)))
   spdf.i@data$veg <- over(spdf.i, veg)$Class_2
   df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@coords, spdf.i@data$veg)
-  colnames(df.i) <- c("id", "height", "x", "y", "veg")
+  colnames(df.i) <- c("id", "ud", "x", "y", "veg")
   df.i <- df.i[!is.na(df.i$veg),]
-  min <- min(df.i$height)
-  max <- max(df.i$height)
-  df.i$height_norm <- ((df.i$height) - min) / (max - min)
-  df.i$height_log <- log(df.i$height)      
+  min <- min(df.i$ud)
+  max <- max(df.i$ud)
+  df.i$height_norm <- ((df.i$ud) - min) / (max - min)
+  df.i$height_log <- log(df.i$ud)      
   final.list[[i]] <- df.i
 }
 
@@ -185,8 +185,8 @@ tables <- list()
 
 for (i in 1:14){
         ud.i <- final.list[[i]]
-        table.i <- aggregate(height ~ veg, data=ud.i, FUN = sum)
-        table.i$height_weighted <- table.i$height / sum(table.i$height)
-        table.i$log_ht_wt <- log(table.i$height_weighted)
+        table.i <- aggregate(ud ~ veg, data=ud.i, FUN = sum)
+        table.i$ud_weight <- table.i$ud / sum(table.i$ud)
+        table.i$log_ud_weight <- log(table.i$ud_weight)
         tables[[i]] <- table.i
 }
