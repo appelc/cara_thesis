@@ -1,7 +1,7 @@
 ## Try weighted compositional analysis
 ## ala Millspaugh et al. 2006
 
-install.packages("ruf",repos="http://www.stat.ucla.edu/~handcock")
+#install.packages("ruf",repos="http://www.stat.ucla.edu/~handcock")
 library(adehabitatHR)
 library(googlesheets)
 library(raster)
@@ -63,47 +63,46 @@ contour.summer.list <- list()
 kde.areas <- list()
 
 for (i in ids){
-  locs.i <- porc.locs[porc.locs$id == i,]
-  locs.i$id_season <- rep(paste(i, "_all", sep = ""), nrow(locs.i))
-  locs.sum.i <- sum.locs[sum.locs$id == i,]
-  locs.sum.i$id_season <- rep(paste(i, "_sum", sep = ""), nrow(locs.sum.i))
-  locs.all.i <- rbind(locs.i, locs.sum.i)
-  sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
+      locs.i <- porc.locs[porc.locs$id == i,]
+      locs.i$id_season <- rep(paste(i, "_all", sep = ""), nrow(locs.i))
+      locs.sum.i <- sum.locs[sum.locs$id == i,]
+      locs.sum.i$id_season <- rep(paste(i, "_sum", sep = ""), nrow(locs.sum.i))
+      locs.all.i <- rbind(locs.i, locs.sum.i)
+      sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
                                  data=data.frame(locs.all.i$id_season),
                                  proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-  c = 10   ## desired cell size (meters)
-  fake.kern <- kernelUD(xy = sp.i, extent = 1)
-  spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
-  eas <- diff(range(spdf@extent[1:2]))
-  nor <- diff(range(spdf@extent[3:4]))
-  if(eas > nor){
-    g <- (eas/c)
-  } else {
-    g <- (nor/c)
-  }
+      c = 10   ## desired cell size (meters)
+      fake.kern <- kernelUD(xy = sp.i, extent = 1)
+      spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
+      eas <- diff(range(spdf@extent[1:2]))
+      nor <- diff(range(spdf@extent[3:4]))
+      if(eas > nor){
+        g <- (eas/c)
+      } else {
+        g <- (nor/c)
+      }
+      # calculate UD on both IDs ("all" and "summer") with same4all = TRUE
+      kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
+      kde.i <- kernel.area(kern.i, percent = c(50, 90, 95, 99), unin = "m", unout = "km2", standardize = FALSE)
+      data.frame(kde.i, row.names = c("50", "90", "95", "99"))
+      kde.areas[[i]] <- kde.i
   
-  # calculate UD on both IDs ("all" and "summer") with same4all = TRUE
-  kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
-  kde.i <- kernel.area(kern.i, percent = c(50, 90, 95, 99), unin = "m", unout = "km2", standardize = FALSE)
-  data.frame(kde.i, row.names = c("50", "90", "95", "99"))
-  kde.areas[[i]] <- kde.i
+      # make 99% contours (full and summer)
+      cont99.all.i <- getverticeshr.estUD(kern.i[[1]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
+      cont99.sum.i <- getverticeshr.estUD(kern.i[[2]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
   
-  # make 99% contours (full and summer)
-  cont99.all.i <- getverticeshr.estUD(kern.i[[1]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
-  cont99.sum.i <- getverticeshr.estUD(kern.i[[2]], percent = 99, unin = "m", unout = "km2", standardize = FALSE)
+      # clip summer UD to 99% contour from ALL points (not just summer), and veg extent
+      sum.ud.i <- (kern.i[[2]])[cont99.all.i,]
+      sum.ud.i <- sum.ud.i[veg,]
   
-  # clip summer UD to 99% contour from ALL points (not just summer), and veg extent
-  sum.ud.i <- (kern.i[[2]])[cont99.all.i,]
-  sum.ud.i <- sum.ud.i[veg,]
+      # save full UD, summer UD, and clipped UD:
+      ud.list[[i]] <- kern.i[[1]]
+      ud.summer.list[[i]] <- kern.i[[2]]
+      ud.clipped.list[[i]] <- sum.ud.i ##it's now a "SpatialPixelsDataFrame"
   
-  # save full UD, summer UD, and clipped UD:
-  ud.list[[i]] <- kern.i[[1]]
-  ud.summer.list[[i]] <- kern.i[[2]]
-  ud.clipped.list[[i]] <- sum.ud.i ##it's now a "SpatialPixelsDataFrame"
-  
-  # and save the contours:
-  contour.list[[i]] <- cont99.all.i
-  contour.summer.list[[i]] <- cont99.sum.i # don't actually use this for anything later
+      # and save the contours:
+      contour.list[[i]] <- cont99.all.i
+      contour.summer.list[[i]] <- cont99.sum.i # don't actually use this for anything later
 }
 
 ## it's cool to look at a few here:
@@ -113,8 +112,7 @@ plot(contour.list[[12]], add=TRUE, border="blue", lwd=2)
 plot(contour.summer.list[[12]], add=TRUE, border="green", lwd=2)
 
 ## output KDE areas
-#kde.areas.wide <- reshape(kde.areas, varying = NULL, direction = "long")
-write.csv(kde.areas, "csvs/kde_areas_050316.csv")
+#write.csv(kde.areas, "csvs/kde_areas_050316.csv")
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
@@ -180,12 +178,11 @@ points(utm_n ~ utm_e, data=sum.locs[sum.locs$id == "15.14",], col="green", pch=1
 ## total UD value of all patches to obtain a UD-weighted estimate of use 
 ## for each habitat type for each individual animal 
 ## - (Millspaugh et al. 2004 p. 391)
-
 ######################
 
+ids <- unique(sum.locs$id)
 tables <- list()
-
-for (i in 1:14){
+for (i in ids){
         ud.i <- final.list[[i]]
         table.i <- aggregate(ud ~ veg, data=ud.i, FUN = sum)
         table.i$ud_weight <- table.i$ud / sum(table.i$ud)
@@ -196,7 +193,7 @@ for (i in 1:14){
 ## now, need to calcluate "log-transformed availability data"
 veg.99kdes <- list()
 veg.areas <- list()
-for (i in 1:14){
+for (i in ids){
         cont99.i <- contour.list[[i]]
         veg.i <- intersect(veg, cont99.i)
         veg.i <- veg.i[!is.na(veg.i@data$Class_2),] #get rid of NAs
@@ -215,16 +212,21 @@ for (i in 1:14){
 
 ## There's also a problem in the "intersect" step where I think it doesn't 
 ## incldue some polygons instead of truncating them within the 99% contour
-## (see below figure for an example)
+## (see figures below for an example)
 
-## cool figures:
-
-for (i in 1:14){
+## cool figures but I know it's really messy (fix later):
+ids <- unique(sum.locs$id)
+for (i in ids){
         veg.i <- veg.99kdes[[i]]
-        mypath <- file.path("figures", paste(i, "_veg_99kde", ".png", sep = ""))
+        mypath <- file.path("figures", "kdes_with_veg", paste(i, "_veg_99kde", ".png", sep = ""))
         png(file=mypath)
-        mytitle = paste("veg_99kde_", i)
+        mytitle = paste("99% KDE ", i, sep = "")
+        par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
         plot(veg.i, main = mytitle)
+        leg.txt <- sort(unique(veg$Class_2))
+        leg.col <- c("khaki1", "khaki3", "aquamarine", "khaki4", "darkolivegreen4", "cadetblue1",
+                     "coral1", "yellow3", "darkolivegreen3", "darkseagreen3", "aquamarine4")
+        legend("topright", inset=c(-0.3,0), legend = leg.txt, pch = 15, col = leg.col, cex=0.9)
         plot(veg.i[veg.i$Class_2 == "Beach",], add=TRUE, col="khaki1")
         plot(veg.i[veg.i$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
         plot(veg.i[veg.i$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
@@ -236,7 +238,39 @@ for (i in 1:14){
         plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
         plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
         plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
+        plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
         dev.off() 
 }
+
+## may need to run this again to be able to plot again:
+#dev.off()
+
+######################
+## 5. Subtract differences in log-transformed availability data from the
+##    log-transformed use data for each animal and then test for overall
+##    selection using Wilks' lambda
+######################
+
+## combine used and avail in the same table
+## we have "tables" (a list) and "veg.areas" (a list)
+
+ids <- unique(sum.locs$id)
+full.table <- NULL
+final.table <- NULL
+for (i in ids){
+        tables.i <- tables[[i]]
+        veg.areas.i <- veg.areas[[i]]       
+        tables.i$area <- veg.areas.i$area
+        tables.i$prop_area <- veg.areas.i$prop_area
+        tables.i$id <- rep(i, nrow(tables.i))
+        tables.i$sel <- tables.i$ud_weight - tables.i$prop_area
+        full.table <- rbind(full.table, tables.i)
+        final.df <- data.frame(tables.i$id, tables.i$veg, tables.i$log_ud_weight,
+                               tables.i$prop_area, tables.i$sel)
+        colnames(final.df) <- c("id", "veg", "log_ud_wt", "prop_area", "sel")
+        final.table <- rbind(final.table, final.df)
+}
+
+write.csv(final.table, "csvs/wt_comp_analysis_050316.csv")
 
 
