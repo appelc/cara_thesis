@@ -273,4 +273,3 @@ for (i in ids){
 
 write.csv(final.table, "csvs/wt_comp_analysis_050316.csv")
 
-
