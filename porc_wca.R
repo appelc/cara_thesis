@@ -40,6 +40,8 @@ sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
 ## Load veg data
 veg <- readOGR(dsn="shapefiles", layer="Veg categories CA", verbose=TRUE)
 proj4string(veg) <- proj4string(porc.sp)
+veg.ext <- readOGR(dsn="shapefiles", layer="Veg extent new", verbose=TRUE)
+proj4string(veg.ext) <- proj4string(veg)
 
 ######################
 ## 2. Then, extract the UD from "adehabitatHR" package
@@ -101,7 +103,7 @@ for (i in ids){
   
   # and save the contours:
   contour.list[[i]] <- cont99.all.i
-  contour.summer.list[[i]] <- cont99.sum.i
+  contour.summer.list[[i]] <- cont99.sum.i # don't actually use this for anything later
 }
 
 ## it's cool to look at a few here:
@@ -190,3 +192,51 @@ for (i in 1:14){
         table.i$log_ud_weight <- log(table.i$ud_weight)
         tables[[i]] <- table.i
 }
+
+## now, need to calcluate "log-transformed availability data"
+veg.99kdes <- list()
+veg.areas <- list()
+for (i in 1:14){
+        cont99.i <- contour.list[[i]]
+        veg.i <- intersect(veg, cont99.i)
+        veg.i <- veg.i[!is.na(veg.i@data$Class_2),] #get rid of NAs
+        area.all <- gArea(veg.i, byid = TRUE) #units should be m^2
+        veg.df.i <- data.frame(veg.i$Class_2, area.all)
+        colnames(veg.df.i) <- c("veg", "area")
+        veg.areas.i <- aggregate(area ~ veg, data=veg.df.i, FUN = sum)
+        veg.areas.i$prop_area <- veg.areas.i$area / sum(veg.areas.i$area)
+        veg.99kdes[[i]] <- veg.i
+        veg.areas[[i]] <- veg.areas.i
+}
+
+## get 7 warnings: "In RGEOSUnaryPredFunc(spgeom, byid, "rgeos_isvalid") :
+##  Ring Self-intersection at or near point x, y 
+##  (I think just because of fragments/holes between polygons I digitized)
+
+## There's also a problem in the "intersect" step where I think it doesn't 
+## incldue some polygons instead of truncating them within the 99% contour
+## (see below figure for an example)
+
+## cool figures:
+
+for (i in 1:14){
+        veg.i <- veg.99kdes[[i]]
+        mypath <- file.path("figures", paste(i, "_veg_99kde", ".png", sep = ""))
+        png(file=mypath)
+        mytitle = paste("veg_99kde_", i)
+        plot(veg.i, main = mytitle)
+        plot(veg.i[veg.i$Class_2 == "Beach",], add=TRUE, col="khaki1")
+        plot(veg.i[veg.i$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
+        plot(veg.i[veg.i$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
+        plot(veg.i[veg.i$Class_2 == "Coastal scrub",], add=TRUE, col="khaki4")
+        plot(veg.i[veg.i$Class_2 == "Conifer forest",], add=TRUE, col="darkolivegreen4")
+        plot(veg.i[veg.i$Class_2 == "Freshwater marsh",], add=TRUE, col="cadetblue1")
+        plot(veg.i[veg.i$Class_2 == "Fruit tree",], add=TRUE, col="coral1")
+        plot(veg.i[veg.i$Class_2 == "Meadow",], add=TRUE, col="yellow3")
+        plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
+        plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
+        plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
+        dev.off() 
+}
+
+
