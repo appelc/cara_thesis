@@ -27,19 +27,9 @@ porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
 ## Separate out summer locations
 sum.locs <- porc.locs[porc.locs$date < "2015-11-01",]
 
-## Turn these into a Spatial Points Data Frame
-## Delete... I never actually use these! Other than to assign projection for "veg"
-porc.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
-                                  data=data.frame(porc.locs$id),
-                                  proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
-                                 data=data.frame(sum.locs$id),
-                                 proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
-
 ## Load veg data
 veg <- readOGR(dsn="shapefiles", layer="Veg categories CA", verbose=TRUE)
-proj4string(veg) <- proj4string(porc.sp)
+proj4string(veg) <- CRS("+proj=utm +zone=10 +datum=NAD83")
 veg.ext <- readOGR(dsn="shapefiles", layer="Veg extent new", verbose=TRUE)
 proj4string(veg.ext) <- proj4string(veg)
 
@@ -201,6 +191,7 @@ for (i in ids){
         colnames(veg.df.i) <- c("veg", "area")
         veg.areas.i <- aggregate(area ~ veg, data=veg.df.i, FUN = sum)
         veg.areas.i$prop_area <- veg.areas.i$area / sum(veg.areas.i$area)
+        veg.areas.i$log_avail <- log(veg.areas.i$prop_area)
         veg.99kdes[[i]] <- veg.i
         veg.areas[[i]] <- veg.areas.i
 }
@@ -212,40 +203,7 @@ for (i in ids){
 ## There's also a problem in the "intersect" step where I think it excludes 
 ## some entire polygons instead of truncating them within the 99% contour.
 ## An alternative is "gIntersection" but it doesn't retain polygon IDs
-## (see figures below for an example)
-
-## cool figures but this is really messy (fix later):
-ids <- unique(sum.locs$id)
-for (i in ids){
-        veg.i <- veg.99kdes[[i]]
-        mypath <- file.path("figures", "kdes_with_veg", paste(i, "_veg_99kde", ".png", sep = ""))
-        png(file=mypath)
-        mytitle = paste("99% KDE ", i, sep = "")
-        par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
-        plot(veg.i, main = mytitle)
-        leg.txt <- sort(unique(veg$Class_2))
-        leg.col <- c("khaki1", "khaki3", "aquamarine", "khaki4", "darkolivegreen4", "cadetblue1",
-                     "coral1", "yellow3", "darkolivegreen3", "darkseagreen3", "aquamarine4")
-        legend("topright", inset=c(-0.3,0), legend = leg.txt, pch = 15, col = leg.col, cex=0.9)
-        plot(veg.i[veg.i$Class_2 == "Beach",], add=TRUE, col="khaki1")
-        plot(veg.i[veg.i$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
-        plot(veg.i[veg.i$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
-        plot(veg.i[veg.i$Class_2 == "Coastal scrub",], add=TRUE, col="khaki4")
-        plot(veg.i[veg.i$Class_2 == "Conifer forest",], add=TRUE, col="darkolivegreen4")
-        plot(veg.i[veg.i$Class_2 == "Freshwater marsh",], add=TRUE, col="cadetblue1")
-        plot(veg.i[veg.i$Class_2 == "Fruit tree",], add=TRUE, col="coral1")
-        plot(veg.i[veg.i$Class_2 == "Meadow",], add=TRUE, col="yellow3")
-        plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
-        plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
-        plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
-        plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
-        plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
-        legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=0.9)
-        dev.off() 
-}
-
-## may need to run this again to be able to plot again:
-#dev.off()
+## (see figures at the bottom for an example)
 
 ######################
 ## 5. Subtract differences in log-transformed availability data from the
@@ -262,18 +220,17 @@ final.table <- NULL
 for (i in ids){
         tables.i <- tables[[i]]
         veg.areas.i <- veg.areas[[i]]       
-        tables.i$area <- veg.areas.i$area
-        tables.i$prop_area <- veg.areas.i$prop_area
+        tables.i$log_avail <- veg.areas.i$log_avail
         tables.i$id <- rep(i, nrow(tables.i))
-        tables.i$sel <- tables.i$ud_weight - tables.i$prop_area
+        tables.i$sel <- tables.i$log_ud_weight - tables.i$log_avail
         full.table <- rbind(full.table, tables.i)
         final.df <- data.frame(tables.i$id, tables.i$veg, tables.i$log_ud_weight,
-                               tables.i$prop_area, tables.i$sel)
-        colnames(final.df) <- c("id", "veg", "log_ud_wt", "prop_area", "sel")
+                               tables.i$log_avail, tables.i$sel)
+        colnames(final.df) <- c("id", "veg", "log_ud_wt", "log_avail", "sel")
         final.table <- rbind(final.table, final.df)
 }
 
-write.csv(final.table, "csvs/wt_comp_analysis_050316.csv")
+write.csv(final.table, "csvs/wt_comp_analysis_050416.csv")
 
 ## box plot:
 par(mar=c(5, 9, 3, 3), xpd=FALSE)
@@ -293,3 +250,39 @@ manova.table.wide <- reshape(manova.table, idvar = "id", timevar = "veg", direct
 group <- as.factor(manova.table.wide[,1])
 x <- as.matrix(manova.table.wide[,2:12])
 Wilks.test(x, grouping=group, method="rank", na.action=na.omit)
+
+
+######################
+######################
+## cool figures but this is really messy (fix later):
+ids <- unique(sum.locs$id)
+for (i in ids){
+  veg.i <- veg.99kdes[[i]]
+  mypath <- file.path("figures", "kdes_with_veg", paste(i, "_veg_99kde", ".png", sep = ""))
+  png(file=mypath)
+  mytitle = paste("99% KDE ", i, sep = "")
+  par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
+  plot(veg.i, main = mytitle)
+  leg.txt <- sort(unique(veg$Class_2))
+  leg.col <- c("khaki1", "khaki3", "aquamarine", "khaki4", "darkolivegreen4", "cadetblue1",
+               "coral1", "yellow3", "darkolivegreen3", "darkseagreen3", "aquamarine4")
+  legend("topright", inset=c(-0.3,0), legend = leg.txt, pch = 15, col = leg.col, cex=0.9)
+  plot(veg.i[veg.i$Class_2 == "Beach",], add=TRUE, col="khaki1")
+  plot(veg.i[veg.i$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
+  plot(veg.i[veg.i$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
+  plot(veg.i[veg.i$Class_2 == "Coastal scrub",], add=TRUE, col="khaki4")
+  plot(veg.i[veg.i$Class_2 == "Conifer forest",], add=TRUE, col="darkolivegreen4")
+  plot(veg.i[veg.i$Class_2 == "Freshwater marsh",], add=TRUE, col="cadetblue1")
+  plot(veg.i[veg.i$Class_2 == "Fruit tree",], add=TRUE, col="coral1")
+  plot(veg.i[veg.i$Class_2 == "Meadow",], add=TRUE, col="yellow3")
+  plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
+  plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
+  plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
+  plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
+  plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
+  legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=0.9)
+  dev.off() 
+}
+
+## may need to run this again to be able to plot again:
+#dev.off()
