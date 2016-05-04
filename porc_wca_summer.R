@@ -288,3 +288,15 @@ for (i in ids){
 
 ## may need to run this again to be able to plot again:
 #dev.off()
+
+
+
+### CLIP POLYGONS:
+# Stolen from: https://philmikejones.wordpress.com/2015/09/01/clipping-polygons-in-r
+
+new.clip <- gIntersection(cont99.i, veg, byid=T)
+row.names(new.clip) <- gsub("homerange ", "", row.names(new.clip))
+keep <- row.names(new.clip)
+new.clip <- spChFIDs(new.clip, keep)
+clip.data <- as.data.frame(veg@data[keep,])
+clip.spdf <- SpatialPolygonsDataFrame(new.clip, clip.data)
