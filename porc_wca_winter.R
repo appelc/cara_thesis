@@ -149,7 +149,7 @@ points(utm_n ~ utm_e, data=win.locs[win.locs$id == "16.15",], col="green", pch=1
 ids <- unique(win.locs$id)
 tables.winter <- list()
 for (i in ids){
-       ud.i <- final.list.winter[[i]]
+      ud.i <- final.list.winter[[i]]
       table.i <- aggregate(ud ~ veg, data=ud.i, FUN = sum)
       table.i$ud_weight <- table.i$ud / sum(table.i$ud)
       table.i$log_ud_weight <- log(table.i$ud_weight)
@@ -162,7 +162,7 @@ veg.99kdes <- list()
 veg.areas <- list()
 for (i in ids){
       cont99.i <- contour.list[[i]]
-      veg.i <- intersect(veg, cont99.i)
+      veg.i <- intersect(cont99.i, veg)
       veg.i <- veg.i[!is.na(veg.i@data$Class_2),] #get rid of NAs
       area.all <- gArea(veg.i, byid = TRUE) #units should be m^2
       veg.df.i <- data.frame(veg.i$Class_2, area.all)
@@ -216,50 +216,50 @@ boxplot(sel ~ veg, data = final.table.winter, las=2, xaxt= "n", horizontal=TRUE,
 title(xlab = "Differences in log ratio", line=1)
 abline(v=0, lty = 1, col="red")
 
-## compute Wilk's lambda:
+######################
+## 6. Compute Wilk's lambda to test for overall selection
+######################
+
 ## function "manova" or "Wilks.test"? the latter is in package "rrcov"
-tst2 <- Wilks.test(x=c(id, veg) ~ log_ud_wt + prop_area, data=final.table.winter)
-summary(tst2)
+## "groups" are veg, and we are testing for differences between "log_ud_wt" and "log_avail"
 
-## first, rearrange
-manova.table <- data.frame(final.table.winter$id, final.table.winter$veg, final.table.winter$sel)
-colnames(manova.table) <- c("id", "veg", "sel")
-manova.table.wide <- reshape(manova.table, idvar = "id", timevar = "veg", direction = "wide")
-group <- as.factor(manova.table.wide[,1])
-x <- as.matrix(manova.table.wide[,2:12])
-Wilks.test(x, grouping=group, method="rank", na.action=na.omit)
+groups <- as.factor(final.table.winter[,2])
+x <- as.matrix(final.table.winter[,3:4])
 
+## can do method "c" for mean and variance or "rank" for wilks lambda ranks
+wilks.winter <- Wilks.test(x, grouping = groups, method="rank")
+wilks.winter
 
 ######################
 ######################
 ## cool figures but this is really messy (fix later):
 ids <- unique(win.locs$id)
 for (i in ids){
-  veg.i <- veg.99kdes[[i]]
-  mypath <- file.path("figures", "kdes_with_veg", paste(i, "_veg_99kde", ".png", sep = ""))
-  png(file=mypath)
-  mytitle = paste("99% KDE ", i, sep = "")
-  par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
-  plot(veg.i, main = mytitle)
-  leg.txt <- sort(unique(veg$Class_2))
-  leg.col <- c("khaki1", "khaki3", "aquamarine", "khaki4", "darkolivegreen4", "cadetblue1",
-               "coral1", "yellow3", "darkolivegreen3", "darkseagreen3", "aquamarine4")
-  legend("topright", inset=c(-0.3,0), legend = leg.txt, pch = 15, col = leg.col, cex=0.9)
-  plot(veg.i[veg.i$Class_2 == "Beach",], add=TRUE, col="khaki1")
-  plot(veg.i[veg.i$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
-  plot(veg.i[veg.i$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
-  plot(veg.i[veg.i$Class_2 == "Coastal scrub",], add=TRUE, col="khaki4")
-  plot(veg.i[veg.i$Class_2 == "Conifer forest",], add=TRUE, col="darkolivegreen4")
-  plot(veg.i[veg.i$Class_2 == "Freshwater marsh",], add=TRUE, col="cadetblue1")
-  plot(veg.i[veg.i$Class_2 == "Fruit tree",], add=TRUE, col="coral1")
-  plot(veg.i[veg.i$Class_2 == "Meadow",], add=TRUE, col="yellow3")
-  plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
-  plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
-  plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
-  plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
-  plot(win.sp[win.sp$win.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
-  legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=0.9)
-  dev.off() 
+      veg.i <- veg.99kdes[[i]]
+      mypath <- file.path("figures", "kdes_with_veg", "winter", paste(i, "_veg_99kde", ".png", sep = ""))
+      png(file=mypath)
+      mytitle = paste("99% KDE ", i, sep = "")
+      par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
+      plot(veg.i, main = mytitle)
+      leg.txt <- sort(unique(veg$Class_2))
+      leg.col <- c("khaki1", "khaki3", "aquamarine", "khaki4", "darkolivegreen4", "cadetblue1",
+                   "coral1", "yellow3", "darkolivegreen3", "darkseagreen3", "aquamarine4")
+      legend("topright", inset=c(-0.3,0), legend = leg.txt, pch = 15, col = leg.col, cex=0.9)
+      plot(veg.i[veg.i$Class_2 == "Beach",], add=TRUE, col="khaki1")
+      plot(veg.i[veg.i$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
+      plot(veg.i[veg.i$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
+      plot(veg.i[veg.i$Class_2 == "Coastal scrub",], add=TRUE, col="khaki4")
+      plot(veg.i[veg.i$Class_2 == "Conifer forest",], add=TRUE, col="darkolivegreen4")
+      plot(veg.i[veg.i$Class_2 == "Freshwater marsh",], add=TRUE, col="cadetblue1")
+      plot(veg.i[veg.i$Class_2 == "Fruit tree",], add=TRUE, col="coral1")
+      plot(veg.i[veg.i$Class_2 == "Meadow",], add=TRUE, col="yellow3")
+      plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
+      plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
+      plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
+      plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
+      plot(win.sp[win.sp$win.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
+      legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=0.9)
+      dev.off() 
 }
 
 ## may need to run this again to be able to plot again:

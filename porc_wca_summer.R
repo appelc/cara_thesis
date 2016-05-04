@@ -9,6 +9,7 @@ library(rgdal)
 library(rgeos)
 library(lattice)
 library(ruf)
+library(rrcov)
 
 ######################
 ## 1. First, load porcupine location data & veg data
@@ -238,19 +239,20 @@ boxplot(sel ~ veg, data = final.table, las=2, xaxt= "n", horizontal=TRUE)
 title(xlab = "Differences in log ratio", line=1)
 abline(v=0, lty = 1, col="red")
 
-## compute Wilk's lambda:
-## function "manova" or "Wilks.test"? the latter is in package "rrcov"
-tst2 <- Wilks.test(x=c(id, veg) ~ log_ud_wt + prop_area, data=final.table)
-summary(tst2)
- 
-## first, rearrange
-manova.table <- data.frame(final.table$id, final.table$veg, final.table$sel)
-colnames(manova.table) <- c("id", "veg", "sel")
-manova.table.wide <- reshape(manova.table, idvar = "id", timevar = "veg", direction = "wide")
-group <- as.factor(manova.table.wide[,1])
-x <- as.matrix(manova.table.wide[,2:12])
-Wilks.test(x, grouping=group, method="rank", na.action=na.omit)
 
+######################
+## 6. Compute Wilk's lambda to test for overall selection
+######################
+
+## function "manova" or "Wilks.test"? the latter is in package "rrcov"
+## "groups" are veg, and we are testing for differences between "log_ud_wt" and "log_avail"
+
+groups <- as.factor(final.table[,2])
+x <- as.matrix(final.table[,3:4])
+
+## can do method "c" for mean and variance or "rank" for wilks lambda ranks
+wilks.summer <- Wilks.test(x, grouping = groups, method="rank")
+wilks.summer
 
 ######################
 ######################
