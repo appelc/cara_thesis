@@ -242,7 +242,7 @@ abline(v=0, lty = 1, col="red")
 ## function "manova" or "Wilks.test"? the latter is in package "rrcov"
 tst2 <- Wilks.test(x=c(id, veg) ~ log_ud_wt + prop_area, data=final.table)
 summary(tst2)
-
+ 
 ## first, rearrange
 manova.table <- data.frame(final.table$id, final.table$veg, final.table$sel)
 colnames(manova.table) <- c("id", "veg", "sel")

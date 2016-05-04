@@ -208,11 +208,11 @@ for (i in ids){
       final.table.winter <- rbind(final.table.winter, final.df)
 }
 
-write.csv(final.table.winter, "csvs/wt_comp_analysis_050416.csv")
+write.csv(final.table.winter, "csvs/wt_comp_analysis_winter_050416.csv")
 
 ## box plot:
 par(mar=c(5, 9, 3, 3), xpd=FALSE)
-boxplot(sel ~ veg, data = final.table.winter, las=2, xaxt= "n", horizontal=TRUE)
+boxplot(sel ~ veg, data = final.table.winter, las=2, xaxt= "n", horizontal=TRUE, outline=FALSE)
 title(xlab = "Differences in log ratio", line=1)
 abline(v=0, lty = 1, col="red")
 
