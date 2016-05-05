@@ -8,8 +8,8 @@ library(raster)
 library(rgdal)
 library(rgeos)
 library(lattice)
-library(ruf)
 library(rrcov)
+library(ggplot2)
 
 ######################
 ## 1. First, load porcupine location data & veg data
@@ -181,30 +181,35 @@ for (i in ids){
 }
 
 ## now, need to calcluate "log-transformed availability data"
+
+### CLIP POLYGONS Stolen from: https://philmikejones.wordpress.com/2015/09/01/clipping-polygons-in-r
+## because "intersect" excludes some edge polygons and "gIntersection" doesn't retain polygon ids
+
+ids <- unique(sum.locs$id)
 veg.99kdes <- list()
 veg.areas <- list()
 for (i in ids){
         cont99.i <- contour.list[[i]]
-        veg.i <- intersect(veg, cont99.i)
-        veg.i <- veg.i[!is.na(veg.i@data$Class_2),] #get rid of NAs
-        area.all <- gArea(veg.i, byid = TRUE) #units should be m^2
-        veg.df.i <- data.frame(veg.i$Class_2, area.all)
+        clip.i <- gIntersection(cont99.i, veg, byid = T) #this is just a SpatialPolygons (no data)
+        row.names(clip.i) <- gsub("homerange ", "", row.names(clip.i))    
+        keep <- row.names(clip.i)
+        clip.i <- spChFIDs(clip.i, keep) #changes feature IDs in the SP
+        clip.data <- as.data.frame(veg@data[keep,]) #this is what we'll add as @data to the SPDF
+        clip.spdf <- SpatialPolygonsDataFrame(clip.i, clip.data)  #this is fixed!
+        clip.spdf <- clip.spdf[!is.na(clip.spdf@data$Class_2),] #get rid of NAs
+        area.all <- gArea(clip.spdf, byid = TRUE) #units should be m^2
+        veg.df.i <- data.frame(clip.spdf$Class_2, area.all)
         colnames(veg.df.i) <- c("veg", "area")
         veg.areas.i <- aggregate(area ~ veg, data=veg.df.i, FUN = sum)
         veg.areas.i$prop_area <- veg.areas.i$area / sum(veg.areas.i$area)
         veg.areas.i$log_avail <- log(veg.areas.i$prop_area)
-        veg.99kdes[[i]] <- veg.i
+        veg.99kdes[[i]] <- clip.spdf
         veg.areas[[i]] <- veg.areas.i
 }
 
-## get 7 warnings: "In RGEOSUnaryPredFunc(spgeom, byid, "rgeos_isvalid") :
-##  Ring Self-intersection at or near point x, y 
-##  (I think just because of fragments/holes between polygons I digitized)
-
-## There's also a problem in the "intersect" step where I think it excludes 
-## some entire polygons instead of truncating them within the 99% contour.
-## An alternative is "gIntersection" but it doesn't retain polygon IDs
-## (see figures at the bottom for an example)
+## good, no self-intersection errors!
+## any missing polygons at edges?
+plot(veg.99kdes[[14]]) #all look great!
 
 ######################
 ## 5. Subtract differences in log-transformed availability data from the
@@ -231,7 +236,7 @@ for (i in ids){
         final.table <- rbind(final.table, final.df)
 }
 
-write.csv(final.table, "csvs/wt_comp_analysis_050416.csv")
+write.csv(final.table, "csvs/summer_wt_comp_analysis_050416.csv")
 
 ## box plot:
 par(mar=c(5, 9, 3, 3), xpd=FALSE)
@@ -253,6 +258,52 @@ x <- as.matrix(final.table[,3:4])
 ## can do method "c" for mean and variance or "rank" for wilks lambda ranks
 wilks.summer <- Wilks.test(x, grouping = groups, method="rank")
 wilks.summer
+
+######################
+## 7. If use differes significantly from availability (p-value for Wilks lambda):
+##    calculate the mean and st. dev. for the log-ratio differences,
+##    and use these to rank each habitat type
+## - Then, use t-test to assess difference between ranks and to determine where 
+##   selection differed by habitat pairs (Millspaugh et al. 2006, p. 392)
+######################
+
+## calculate mean "sel" for each habitat type
+veg_types <- unique(final.table$veg)
+means_table <- NULL
+for (j in veg_types) {
+        veg.j <- final.table[final.table$veg == j,]
+        mean.sel.j <- mean(veg.j$sel)
+        sd.sel.j <- sd(veg.j$sel)
+        se.sel.j <- (sd.sel.j)/sqrt(nrow(veg.j))
+        table.j <- data.frame(j, mean.sel.j, sd.sel.j, se.sel.j)
+        colnames(table.j) <- c("veg", "mean", "sdev", "se")  
+        means_table <- rbind(means_table, table.j)
+        }
+
+## rank veg types:
+dodge <- position_dodge(width = 0.9)
+limits <- aes(ymax = means_table$mean + means_table$se,
+              ymin = means_table$mean - means_table$se)
+
+p <- ggplot(data = means_table, aes(x = reorder(veg, mean),   
+                                    y = mean, 
+                                    fill = veg_names_col$veg_names))
+p + geom_bar(stat = "identity", position = dodge, fill = factor(veg_names_col$veg_colors)) +
+  geom_errorbar(limits, position = dodge, width = 0.25) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(),
+        axis.title.x=element_blank())
+## where did the legend go?
+
+## assign colors to each veg class for plotting
+veg_names <- c("Beach", "Beachgrass dune", "Pasture", "Conifer forest", "Brackish marsh", 
+               "Coastal scrub", "Meadow", "Freshwater marsh", "Wooded swale", "Shrub swale",
+               "Fruit tree")
+veg_colors <- c("khaki", "khaki3", "darkolivegreen3", "darkolivegreen4", "aquamarine", "khaki4",
+                "yellow3", "cadetblue1", "aquamarine4", "darkseagreen3", "coral1")
+veg_names_col <- data.frame(veg_names, veg_colors)
+
+## t-tests to assess difference between ranks:
+
 
 ######################
 ######################
@@ -288,15 +339,3 @@ for (i in ids){
 
 ## may need to run this again to be able to plot again:
 #dev.off()
-
-
-
-### CLIP POLYGONS:
-# Stolen from: https://philmikejones.wordpress.com/2015/09/01/clipping-polygons-in-r
-
-new.clip <- gIntersection(cont99.i, veg, byid=T)
-row.names(new.clip) <- gsub("homerange ", "", row.names(new.clip))
-keep <- row.names(new.clip)
-new.clip <- spChFIDs(new.clip, keep)
-clip.data <- as.data.frame(veg@data[keep,])
-clip.spdf <- SpatialPolygonsDataFrame(new.clip, clip.data)
