@@ -158,14 +158,26 @@ points(utm_n ~ utm_e, data=sum.locs[sum.locs$id == "15.14",], col="green", pch=1
 ## - (Millspaugh et al. 2004 p. 391)
 ######################
 
+## need to reclassify "0" use values because log(0) = -Inf, which means that veg category
+## will be excluded. Eads et al. 2012 use 0.30, "the minimum value that reduced type I error
+## rates in simulation studies (see Bingham et al. 2007)." I'll use 1e-10...
+## ** do it for the sum or as the raw use? check out that paper and do error sensitivity **
+## example: for 15.02, if I change raw UD=0 to 1e-10, the log_ud_weights are meadow = -12, 
+## pasture = -12, shrub swale = -13, and wooded swale = -13.
+## but when I change ud sum (after "aggregate") from 0 to 1e-10, the weights are all -18.4
+## I'll do it the second way for now (change summed UD for each category to 1e-10 if it's 0)
+
+## I don't think there end up being any -Inf in the summer data anyway
+
 ids <- unique(sum.locs$id)
-tables <- list()
+tables.summer <- list()
 for (i in ids){
         ud.i <- final.list[[i]]
         table.i <- aggregate(ud ~ veg, data=ud.i, FUN = sum)
+        table.i$ud[table.i$ud == 0] <- 1e-10 #do this here or before "aggregate"?
         table.i$ud_weight <- table.i$ud / sum(table.i$ud)
         table.i$log_ud_weight <- log(table.i$ud_weight)
-        tables[[i]] <- table.i
+        tables.summer[[i]] <- table.i
 }
 
 ## now, need to calcluate "log-transformed availability data"
@@ -197,7 +209,7 @@ for (i in ids){
 
 ## good, no self-intersection errors!
 ## any missing polygons at edges?
-plot(veg.99kdes[[14]]) #all look great!
+plot(veg.99kdes[[12]]) #all look great!
 
 ######################
 ## 6. Subtract differences in log-transformed availability data from the
@@ -212,7 +224,7 @@ ids <- unique(sum.locs$id)
 full.table <- NULL
 final.table <- NULL
 for (i in ids){
-        tables.i <- tables[[i]]
+        tables.i <- tables.summer[[i]]
         veg.areas.i <- veg.areas[[i]]       
         tables.i$log_avail <- veg.areas.i$log_avail
         tables.i$id <- rep(i, nrow(tables.i))
@@ -224,14 +236,14 @@ for (i in ids){
         final.table <- rbind(final.table, final.df)
 }
 
-write.csv(final.table, "csvs/summer_wt_comp_analysis_050416.csv")
+write.csv(final.table, "csvs/summer_wt_comp_analysis_050516.csv")
 
 ## box plot:
 par(mar=c(5, 9, 3, 3), xpd=FALSE)
-boxplot(sel ~ veg, data = final.table, las=2, xaxt= "n", horizontal=TRUE)
-title(xlab = "Differences in log ratio", line=1)
+boxplot(sel ~ veg, data = final.table, xaxt="n", las=2, horizontal=TRUE, outline=T)
+axis(1)
+title(xlab = "Differences in log ratio", line=3)
 abline(v=0, lty = 1, col="red")
-
 
 ######################
 ## 7. Compute Wilk's lambda to test for overall selection
@@ -301,7 +313,7 @@ for (i in ids){
   mypath <- file.path("figures", "kdes_with_veg", paste(i, "_veg_99kde", ".png", sep = ""))
   png(file=mypath)
   mytitle = paste("99% KDE ", i, sep = "")
-  par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
+  par(mar=c(2.1, 3.1, 3.1, 3.1), xpd=TRUE)
   plot(veg.i, main = mytitle)
   leg.txt <- sort(unique(veg$Class_2))
   leg.col <- c("khaki1", "khaki3", "aquamarine", "khaki4", "darkolivegreen4", "cadetblue1",
@@ -321,8 +333,11 @@ for (i in ids){
   plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
   plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
   legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=0.9)
+  scalebar(500, xy=click(), type='bar', divs=4, below = "meters")
   dev.off() 
 }
 
 ## may need to run this again to be able to plot again:
 #dev.off()
+
+plot(cont99.clipped[[1]])

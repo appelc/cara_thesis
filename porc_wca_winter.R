@@ -127,14 +127,24 @@ for (i in ids){
 ## - (Millspaugh et al. 2004 p. 391)
 ######################
 
+## need to reclassify "0" use values because log(0) = -Inf, which means that veg category
+## will be excluded. Eads et al. 2012 use 0.30, "the minimum value that reduced type I error
+## rates in simulation studies (see Bingham et al. 2007)." I'll use 1e-10...
+## ** do it for the sum or as the raw use? check out that paper and do error sensitivity **
+## example: for 15.02, if I change raw UD=0 to 1e-10, the log_ud_weights are meadow = -12, 
+## pasture = -12, shrub swale = -13, and wooded swale = -13.
+## but when I change ud sum (after "aggregate") from 0 to 1e-10, the weights are all -18.4
+## I'll do it the second way for now (change summed UD for each category to 1e-10 if it's 0)
+
 ids <- unique(win.locs$id)
 tables.winter <- list()
 for (i in ids){
-      ud.i <- final.list.winter[[i]]
-      table.i <- aggregate(ud ~ veg, data=ud.i, FUN = sum)
-      table.i$ud_weight <- table.i$ud / sum(table.i$ud)
-      table.i$log_ud_weight <- log(table.i$ud_weight)
-      tables.winter[[i]] <- table.i
+        ud.i <- final.list.winter[[i]]
+        table.i <- aggregate(ud ~ veg, data=ud.i, FUN = sum)
+        table.i$ud[table.i$ud == 0] <- 1e-10 #do this here or before "aggregate"?
+        table.i$ud_weight <- table.i$ud / sum(table.i$ud)
+        table.i$log_ud_weight <- log(table.i$ud_weight)
+        tables.winter[[i]] <- table.i
 }
 
 ## now, need to calcluate "log-transformed availability data"
@@ -193,12 +203,13 @@ for (i in ids){
       final.table.winter <- rbind(final.table.winter, final.df)
 }
 
-write.csv(final.table.winter, "csvs/wt_comp_analysis_winter_050416.csv")
+write.csv(final.table.winter, "csvs/wt_comp_analysis_winter_050516.csv")
 
 ## box plot:
 par(mar=c(5, 9, 3, 3), xpd=FALSE)
-boxplot(sel ~ veg, data = final.table.winter, las=2, xaxt= "n", horizontal=TRUE, outline=FALSE)
-title(xlab = "Differences in log ratio", line=1)
+boxplot(sel ~ veg, data = final.table.winter, xaxt="n", las=2, ylim=c(-17, 5), horizontal=TRUE, outline=T)
+axis(1)
+title(xlab = "Differences in log ratio", line=3)
 abline(v=0, lty = 1, col="red")
 
 ######################
@@ -224,10 +235,15 @@ wilks.winter
 ######################
 
 ## calculate mean "sel" for each habitat type
+## we have several categories with "-Inf" values for some animals
+## (indicating that the UD height was 0, b/c log(0) is -Inf)... how to deal with these?
+## Don't want to take them out because the use IS 0... change them all to 0?
+
 veg_types <- unique(final.table.winter$veg)
 means_table_win <- NULL
 for (j in veg_types) {
         veg.j <- final.table.winter[final.table.winter$veg == j,]
+        veg.j$log_ud_wt[veg.j$log_ud_wt == "-Inf"] <- 0 ## change "-Inf" values to 0s
         mean.sel.j <- mean(veg.j$sel)
         sd.sel.j <- sd(veg.j$sel)
         se.sel.j <- (sd.sel.j)/sqrt(nrow(veg.j))
@@ -236,7 +252,7 @@ for (j in veg_types) {
         means_table_win <- rbind(means_table_win, table.j)
 }
 
-## rank veg types:
+## rank veg types and plot means:
 dodge <- position_dodge(width = 0.9)
 limits <- aes(ymax = means_table_win$mean + means_table_win$se,
               ymin = means_table_win$mean - means_table_win$se)
