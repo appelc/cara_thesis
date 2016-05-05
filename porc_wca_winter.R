@@ -103,18 +103,10 @@ wireframe(height ~ x * y, data=height.list.winter$`16.15`, drape=TRUE, main="16.
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
-## and include a column for normalizing the UD height: (x - min) / (max - min)
-## (and/or log of UD height)
-##    a. For UD height at each pixel
 ######################
-
-## this loop creates a SPDF for each animal, does 'overlay' with veg class, 
-## gets rid of cells where veg=NA (there shouldn't be many but they may mess up ruf.fit),
-## then turns it back into a data frame for calculating RUF in next step
 
 ids <- unique(win.locs$id)
 final.list.winter <- list()
-
 for (i in ids){
         ht.i <- height.list.winter[[i]]
         spdf.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
@@ -124,22 +116,11 @@ for (i in ids){
         df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@coords, spdf.i@data$veg)
         colnames(df.i) <- c("id", "ud", "x", "y", "veg")
         df.i <- df.i[!is.na(df.i$veg),]
-        min <- min(df.i$ud)
-        max <- max(df.i$ud)
-        df.i$height_norm <- ((df.i$ud) - min) / (max - min)
-        df.i$height_log <- log(df.i$ud)      
         final.list.winter[[i]] <- df.i
 }
 
-## another cool figure:
-plot(spdf.i)
-plot(veg, add=TRUE)
-plot(contour.list$`16.15`, add=TRUE, border="blue", lwd=2)
-points(utm_n ~ utm_e, data=porc.locs[porc.locs$id == "16.15",], col="red", pch=16)
-points(utm_n ~ utm_e, data=win.locs[win.locs$id == "16.15",], col="green", pch=16)
-
 ######################
-## 4. For weighted compositional analysis: 
+## 5. For weighted compositional analysis: 
 ## sum raw UD values by veg type and divide the summed UD values by the 
 ## total UD value of all patches to obtain a UD-weighted estimate of use 
 ## for each habitat type for each individual animal 
@@ -157,34 +138,38 @@ for (i in ids){
 }
 
 ## now, need to calcluate "log-transformed availability data"
-## this should be the same for summer and winter because it's off the full KUD
+
+### CLIP POLYGONS Stolen from: https://philmikejones.wordpress.com/2015/09/01/clipping-polygons-in-r
+## because "intersect" excludes some edge polygons and "gIntersection" doesn't retain polygon ids
+
+ids <- unique(win.locs$id)
 veg.99kdes <- list()
 veg.areas <- list()
 for (i in ids){
-      cont99.i <- contour.list[[i]]
-      veg.i <- intersect(cont99.i, veg)
-      veg.i <- veg.i[!is.na(veg.i@data$Class_2),] #get rid of NAs
-      area.all <- gArea(veg.i, byid = TRUE) #units should be m^2
-      veg.df.i <- data.frame(veg.i$Class_2, area.all)
-      colnames(veg.df.i) <- c("veg", "area")
-      veg.areas.i <- aggregate(area ~ veg, data=veg.df.i, FUN = sum)
-      veg.areas.i$prop_area <- veg.areas.i$area / sum(veg.areas.i$area)
-      veg.areas.i$log_avail <- log(veg.areas.i$prop_area)
-      veg.99kdes[[i]] <- veg.i
-      veg.areas[[i]] <- veg.areas.i
+        cont99.i <- contour.list[[i]]
+        clip.i <- gIntersection(cont99.i, veg, byid = T) #this is just a SpatialPolygons (no data)
+        row.names(clip.i) <- gsub("homerange ", "", row.names(clip.i))    
+        keep <- row.names(clip.i)
+        clip.i <- spChFIDs(clip.i, keep) #changes feature IDs in the SP
+        clip.data <- as.data.frame(veg@data[keep,]) #this is what we'll add as @data to the SPDF
+        clip.spdf <- SpatialPolygonsDataFrame(clip.i, clip.data)  #this is fixed!
+        clip.spdf <- clip.spdf[!is.na(clip.spdf@data$Class_2),] #get rid of NAs
+        area.all <- gArea(clip.spdf, byid = TRUE) #units should be m^2
+        veg.df.i <- data.frame(clip.spdf$Class_2, area.all)
+        colnames(veg.df.i) <- c("veg", "area")
+        veg.areas.i <- aggregate(area ~ veg, data=veg.df.i, FUN = sum)
+        veg.areas.i$prop_area <- veg.areas.i$area / sum(veg.areas.i$area)
+        veg.areas.i$log_avail <- log(veg.areas.i$prop_area)
+        veg.99kdes[[i]] <- clip.spdf
+        veg.areas[[i]] <- veg.areas.i
 }
 
-## get 7 warnings: "In RGEOSUnaryPredFunc(spgeom, byid, "rgeos_isvalid") :
-##  Ring Self-intersection at or near point x, y 
-##  (I think just because of fragments/holes between polygons I digitized)
-
-## There's also a problem in the "intersect" step where I think it excludes 
-## some entire polygons instead of truncating them within the 99% contour.
-## An alternative is "gIntersection" but it doesn't retain polygon IDs
-## (see figures at the bottom for an example)
+## good, no self-intersection errors!
+## any missing polygons at edges?
+plot(veg.99kdes$`16.15`) #all look great!
 
 ######################
-## 5. Subtract differences in log-transformed availability data from the
+## 6. Subtract differences in log-transformed availability data from the
 ##    log-transformed use data for each animal and then test for overall
 ##    selection using Wilks' lambda
 ######################
@@ -217,7 +202,7 @@ title(xlab = "Differences in log ratio", line=1)
 abline(v=0, lty = 1, col="red")
 
 ######################
-## 6. Compute Wilk's lambda to test for overall selection
+## 7. Compute Wilk's lambda to test for overall selection
 ######################
 
 ## function "manova" or "Wilks.test"? the latter is in package "rrcov"
@@ -229,6 +214,52 @@ x <- as.matrix(final.table.winter[,3:4])
 ## can do method "c" for mean and variance or "rank" for wilks lambda ranks
 wilks.winter <- Wilks.test(x, grouping = groups, method="rank")
 wilks.winter
+
+######################
+## 8. If use differes significantly from availability (p-value for Wilks lambda):
+##    calculate the mean and st. dev. for the log-ratio differences,
+##    and use these to rank each habitat type
+## - Then, use t-test to assess difference between ranks and to determine where 
+##   selection differed by habitat pairs (Millspaugh et al. 2006, p. 392)
+######################
+
+## calculate mean "sel" for each habitat type
+veg_types <- unique(final.table.winter$veg)
+means_table_win <- NULL
+for (j in veg_types) {
+        veg.j <- final.table.winter[final.table.winter$veg == j,]
+        mean.sel.j <- mean(veg.j$sel)
+        sd.sel.j <- sd(veg.j$sel)
+        se.sel.j <- (sd.sel.j)/sqrt(nrow(veg.j))
+        table.j <- data.frame(j, mean.sel.j, sd.sel.j, se.sel.j)
+        colnames(table.j) <- c("veg", "mean", "sdev", "se")  
+        means_table_win <- rbind(means_table_win, table.j)
+}
+
+## rank veg types:
+dodge <- position_dodge(width = 0.9)
+limits <- aes(ymax = means_table_win$mean + means_table_win$se,
+              ymin = means_table_win$mean - means_table_win$se)
+
+p <- ggplot(data = means_table_win, aes(x = reorder(veg, mean), y = mean))
+p + geom_bar(stat = "identity", position = dodge, fill = factor(veg_names_col$veg_colors)) +
+  geom_errorbar(limits, position = dodge, width = 0.25) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(),
+        axis.title.x=element_blank()) + ylab("Mean log-ratio differences (+/- SE)")
+
+## where did the legend go?
+
+## assign colors to each veg class for plotting
+veg_names <- c("Beach", "Beachgrass dune", "Pasture", "Conifer forest", "Brackish marsh", 
+               "Coastal scrub", "Meadow", "Freshwater marsh", "Wooded swale", "Shrub swale",
+               "Fruit tree")
+veg_colors <- c("khaki", "khaki3", "darkolivegreen3", "darkolivegreen4", "aquamarine", "khaki4",
+                "yellow3", "cadetblue1", "aquamarine4", "darkseagreen3", "coral1")
+veg_names_col <- data.frame(veg_names, veg_colors)
+
+## t-tests to assess difference between ranks:
+
+
 
 ######################
 ######################

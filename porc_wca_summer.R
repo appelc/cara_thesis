@@ -127,32 +127,20 @@ wireframe(height ~ x * y, data=height.list[[12]], drape=TRUE, main="15.13 summer
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
-## and include a column for normalizing the UD height: (x - min) / (max - min)
-## (and/or log of UD height)
-##    a. For UD height at each pixel
 ######################
-
-## this loop creates a SPDF for each animal, does 'overlay' with veg class, 
-## gets rid of cells where veg=NA (there shouldn't be many but they may mess up ruf.fit),
-## then turns it back into a data frame for calculating RUF in next step
 
 ids <- unique(sum.locs$id)
 final.list <- list()
-
 for (i in ids){
-  ht.i <- height.list[[i]]
-  spdf.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
+        ht.i <- height.list[[i]]
+        spdf.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
                                    data=data.frame(ht.i$id, ht.i$height),
                                    proj4string = CRS(proj4string(veg)))
-  spdf.i@data$veg <- over(spdf.i, veg)$Class_2
-  df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@coords, spdf.i@data$veg)
-  colnames(df.i) <- c("id", "ud", "x", "y", "veg")
-  df.i <- df.i[!is.na(df.i$veg),]
-  min <- min(df.i$ud)
-  max <- max(df.i$ud)
-  df.i$height_norm <- ((df.i$ud) - min) / (max - min)
-  df.i$height_log <- log(df.i$ud)      
-  final.list[[i]] <- df.i
+        spdf.i@data$veg <- over(spdf.i, veg)$Class_2
+        df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@coords, spdf.i@data$veg)
+        colnames(df.i) <- c("id", "ud", "x", "y", "veg")
+        df.i <- df.i[!is.na(df.i$veg),]
+        final.list[[i]] <- df.i
 }
 
 ## another cool figure:
@@ -163,7 +151,7 @@ points(utm_n ~ utm_e, data=porc.locs[porc.locs$id == "15.14",], col="red", pch=1
 points(utm_n ~ utm_e, data=sum.locs[sum.locs$id == "15.14",], col="green", pch=16)
 
 ######################
-## 4. For weighted compositional analysis: 
+## 5. For weighted compositional analysis: 
 ## sum raw UD values by veg type and divide the summed UD values by the 
 ## total UD value of all patches to obtain a UD-weighted estimate of use 
 ## for each habitat type for each individual animal 
@@ -212,7 +200,7 @@ for (i in ids){
 plot(veg.99kdes[[14]]) #all look great!
 
 ######################
-## 5. Subtract differences in log-transformed availability data from the
+## 6. Subtract differences in log-transformed availability data from the
 ##    log-transformed use data for each animal and then test for overall
 ##    selection using Wilks' lambda
 ######################
@@ -246,7 +234,7 @@ abline(v=0, lty = 1, col="red")
 
 
 ######################
-## 6. Compute Wilk's lambda to test for overall selection
+## 7. Compute Wilk's lambda to test for overall selection
 ######################
 
 ## function "manova" or "Wilks.test"? the latter is in package "rrcov"
@@ -260,7 +248,7 @@ wilks.summer <- Wilks.test(x, grouping = groups, method="rank")
 wilks.summer
 
 ######################
-## 7. If use differes significantly from availability (p-value for Wilks lambda):
+## 8. If use differes significantly from availability (p-value for Wilks lambda):
 ##    calculate the mean and st. dev. for the log-ratio differences,
 ##    and use these to rank each habitat type
 ## - Then, use t-test to assess difference between ranks and to determine where 
@@ -285,13 +273,12 @@ dodge <- position_dodge(width = 0.9)
 limits <- aes(ymax = means_table$mean + means_table$se,
               ymin = means_table$mean - means_table$se)
 
-p <- ggplot(data = means_table, aes(x = reorder(veg, mean),   
-                                    y = mean, 
-                                    fill = veg_names_col$veg_names))
+p <- ggplot(data = means_table, aes(x = reorder(veg, mean), y = mean))
 p + geom_bar(stat = "identity", position = dodge, fill = factor(veg_names_col$veg_colors)) +
   geom_errorbar(limits, position = dodge, width = 0.25) +
   theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(),
-        axis.title.x=element_blank())
+        axis.title.x=element_blank()) + ylab("Mean log-ratio differences (+/- SE)")
+
 ## where did the legend go?
 
 ## assign colors to each veg class for plotting
@@ -319,7 +306,7 @@ for (i in ids){
   leg.txt <- sort(unique(veg$Class_2))
   leg.col <- c("khaki1", "khaki3", "aquamarine", "khaki4", "darkolivegreen4", "cadetblue1",
                "coral1", "yellow3", "darkolivegreen3", "darkseagreen3", "aquamarine4")
-  legend("topright", inset=c(-0.3,0), legend = leg.txt, pch = 15, col = leg.col, cex=0.9)
+  legend("topright", inset=c(-0.3,0), legend = leg.txt, pch = 15, col = leg.col, cex=1.2)
   plot(veg.i[veg.i$Class_2 == "Beach",], add=TRUE, col="khaki1")
   plot(veg.i[veg.i$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
   plot(veg.i[veg.i$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
