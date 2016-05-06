@@ -45,7 +45,7 @@ proj4string(veg.ext) <- proj4string(veg)
 ## for all of the points. Then clip to the 99% contour for all the points, as well
 ## as the veg layer extent.
 
-ids <- unique(sum.locs$id)
+ids <- unique(porc.locs$id)
 ud.list <- list()
 ud.summer.list <- list()
 ud.clipped.list <- list()
@@ -330,9 +330,9 @@ for (i in ids){
   plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
   plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
   plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
-  plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
-  plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
-  legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=0.9)
+  plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="black")
+  plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="red")
+  legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=1.2)
   scalebar(500, xy=click(), type='bar', divs=4, below = "meters")
   dev.off() 
 }
@@ -340,4 +340,41 @@ for (i in ids){
 ## may need to run this again to be able to plot again:
 #dev.off()
 
-plot(cont99.clipped[[1]])
+ids.m <- c("15.03", "15.04", "15.06", "15.11", "15.14", "16.15", "16.18")
+ids.f <- c("15.01", "15.02", "15.05", "15.07", "15.08", "15.09", "15.10", "15.12", "15.13", "16.16", "16.17")
+ids.m <- c(3, 4, 6, 11, 14, 15, 17)
+ids.f <- c(2, 5, 7, 8, 9, 10, 12, 13, 16)
+plot(veg.ext, lwd = 2)
+for (i in ids.m){
+        plot(contour.list[[i]], add=TRUE, col='gray')
+}
+
+for (j in ids.f){
+        plot(contour.list[[1]], add=TRUE, density = 20)
+}
+
+plot(veg.ext, lwd = 2)
+legend("right", inset=c(0.1,0), legend = c("Female", "Male"), fill = c('gray', 'black'), 
+       density = c(NA, 20), cex=1.2, title = "99% KDEs")
+scalebar(1000, xy=click(), type='bar', divs=2, below = "m")
+## females
+plot(contour.list[[2]], add=TRUE, col='gray')
+plot(contour.list[[12]], add=TRUE, col='gray')
+plot(contour.list[[13]], add=TRUE, col='gray')
+plot(contour.list[[16]], add=TRUE, col='gray')
+plot(contour.list[[7]], add=TRUE, col='gray')
+plot(contour.list[[9]], add=TRUE, col='gray')
+plot(contour.list[[10]], add=TRUE, col='gray')
+plot(contour.list[[8]], add=TRUE, col='gray')
+plot(contour.list[[5]], add=TRUE, col='gray')
+plot(contour.list[[1]], add=TRUE, col='gray')
+
+## males
+plot(contour.list[[3]], add=TRUE, density = 20)
+#plot(contour.list[[4]], add=TRUE, density = 20)
+plot(contour.list[[6]], add=TRUE, density = 20)
+plot(contour.list[[11]], add=TRUE, density = 20)
+plot(contour.list[[14]], add=TRUE, density = 20)
+plot(contour.list[[15]], add=TRUE, density = 20)
+plot(contour.list[[17]], add=TRUE, density = 20)
+
