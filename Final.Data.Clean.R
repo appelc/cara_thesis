@@ -1,17 +1,40 @@
+library(googlesheets)
+library(sp)
+library(chron)
+
+#### First, read data from googlesheets
+my_sheets <- gs_ls()                 
+my_sheets                            
+gps.pts <- gs_title("Porc GPS data")
+gps.pts
+gps <- data.frame(gs_read_csv(ss=gps.pts, ws="porcGPS", is.na(TRUE), range = cell_cols(1:7), 
+                          stringsAsFactors=FALSE))
+head(gps)
+gps <- gps[!is.na(gps$Animal.ID),]
+gps$Animal.ID <- as.factor(gps$Animal.ID)
+gps$Date <- as.Date(gps$Date, "%m/%d/%Y")
+#gps$Date <- as.Date("1900-01-01") + gps$Date
+test.date <- as.character(gps$Date)
+test.time <- as.character(gps$Time)
+#gps$Time <- chron(times = gps$Time, format = c(times = "%I:%M %p"))
+posix.test <- as.POSIXct(strptime(paste(test.date, test.time), "%Y-%m-%d %I:%M:%S %p"), tz="America/Los_Angeles")
+posix.test.pdt <- as.POSIXct(format(posix.test, tz="America/Los_Angeles", usetz=TRUE))
+gps$posix <- posix.test.pdt
+head(gps)
 
 ###############  *** GPS DATA CLEANING ALGORITHM ***  ###############
 
 #            v------CSV File Goes Here
-data.file <- porc
+data.file <- gps
 #           v-------Desired Minimum Threshold For Outliers (meters)
 minimum <- 20
 #    v-------Hours to remove after first point/before last point
 f <- 10 # First
 l <- 1  # Last
 #   Enter desired OUTLIER csv and shape file name *IN QUOTES  *WITHOUT .CSV/.SHP
-out.file <- "16.17_outlier_20.csv"
+out.file <- "test_all_outlier_20.csv"
 #   Enter desired NO-OUTLIER csv and shape file name *IN QUOTES  *WITHOUT .CSV/.SHP
-no.out.file <- "16.17_clean_20.csv"
+no.out.file <- "test_all_clean_20.csv"
 
 #   *** Files will save to working directory ***
 
@@ -32,10 +55,15 @@ length <- nrow(utm.gps)
 head.utm.gps <- rbind(utm.gps[-(1:length),])
 # ^^^***Preliminary Setup***^^^
 
+## Added by Cara:
+utm.gps$ID_Session <- paste(utm.gps$Animal.ID, utm.gps$Session, sep = '_')
+utm.gps$ID_Session <- as.factor(utm.gps$ID_Session)
+
 # VVV***Remove First and Last points***VVV  
 utm.gps.nofl <- NULL
-for(i in levels(gps$Session)){
-  nofl.sub <- subset(utm.gps, Session==i)
+for(i in levels(utm.gps$ID_Session)){
+  nofl.sub <- subset(utm.gps, ID_Session==i)
+  nofl.sub$ID_Session <- droplevels(nofl.sub$ID_Session) ## added by Cara
   nofl.sub <- nofl.sub[nofl.sub$posix > (nofl.sub$posix[1] + (f*(60^2))),]
   nofl.sub <- nofl.sub[nofl.sub$posix < (nofl.sub$posix[length(nofl.sub$posix)] - (l*60^2)),]
   utm.gps.nofl <- rbind(utm.gps.nofl, nofl.sub)
@@ -59,6 +87,10 @@ while(i < (nrow(utm.gps)-1)){
   i <- i + 1
 }
 # ^^^***Remove Duplicates***^^^
+
+## From Cara: what does remove duplicates do? Mostly important for stationary units?
+## I'll just skip it and continue from here
+utm.nd.gps <- utm.gps
 
 # VVV***Removes Outliers***VVV
 clean_gps_data <- function(utm.nd.gps, minimum){
@@ -115,3 +147,43 @@ plot(num.outliers~minima, type="l")
 # ^^^***Count Outliers***^^^
 
 write.csv(clean.data, no.out.file)
+
+### 
+## now what do we have? "clean.data" is final data.frame
+unique(clean.data$ID_Session)
+
+## try with just one animal/session
+oak1 <- clean.data[clean.data$ID_Session == "16.17_1",]
+oak1$ID_Session <- droplevels(oak1$ID_Session)
+oak1.spdf <- SpatialPointsDataFrame((data.frame(oak1$UTM.N, oak1$UTM.E)), data = oak1,
+                                    proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+## how does it compare to before removing outliers?
+oak1.outliers <- utm.gps[utm.gps$ID_Session == "16.17_1",]
+oak1.outliers$ID_Session <- droplevels(oak1.outliers$ID_Session)
+oak1.outliers.spdf <- SpatialPointsDataFrame((data.frame(oak1.outliers$UTM.N, oak1.outliers$UTM.E)),
+                                             data = oak1.outliers,
+                                             proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+plot(oak1.outliers.spdf, col="red")
+plot(oak1.spdf, add=TRUE, col="black")
+
+## now how would you sample 1 per 24 hrs?
+#1. subset for ID_Session
+#2. get unique date names
+#3. sample 1 in each unique date name
+
+daily.gps <- NULL
+
+for (i in levels(clean.data$ID_Session)){
+        gps.i <- clean.data[clean.data$ID_Session == i,]
+        gps.i$ID_Session <- droplevels(gps.i$ID_Session)
+        # make into SPDF?
+        gps.samples <- NULL
+      for (j in unique(gps.i$Date)){
+          date.j <- gps.i[gps.i$Date == j,]
+          sample <- sample(1:nrow(date.j), 1)
+          sample.j <- date.j[sample,]
+          gps.samples <- rbind(gps.samples, sample.j)
+    }
+      daily.gps <- rbind(daily.gps, gps.samples)
+}
