@@ -281,10 +281,18 @@ veg_names_col <- data.frame(veg_names, veg_colors)
 ######################
 ######################
 ## cool figures but this is really messy (fix later):
+sum.sp <- SpatialPointsDataFrame((data.frame(sum.locs$utm_e, sum.locs$utm_n)),
+                                 data = data.frame(sum.locs$id),
+                                 proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+
+
+win.sp <- SpatialPointsDataFrame((data.frame(win.locs$utm_e, win.locs$utm_n)),
+                                  data = data.frame(win.locs$id), 
+                                  proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
 ids <- unique(win.locs$id)
 for (i in ids){
       veg.i <- veg.99kdes[[i]]
-      mypath <- file.path("figures", "kdes_with_veg", "winter", paste(i, "_veg_99kde", ".png", sep = ""))
+      mypath <- file.path("figures", "kdes_with_veg", "winter", "with_gps", paste(i, "_veg_99kde", ".png", sep = ""))
       png(file=mypath)
       mytitle = paste("99% KDE ", i, sep = "")
       par(mar=c(5.1, 4.1, 4.1, 8.1), xpd=TRUE)
@@ -304,9 +312,9 @@ for (i in ids){
       plot(veg.i[veg.i$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
       plot(veg.i[veg.i$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
       plot(veg.i[veg.i$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
-      plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
+      plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1, col="black")
       plot(win.sp[win.sp$win.locs.id == i,], add=TRUE, pch=16, cex=1, col="red")
-      legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("red", "black"), cex=0.9)
+      legend("bottomright", inset=c(-0.3,0), legend = c("Summer points", "Winter points"), pch=16, col=c("black", "red"), cex=0.9)
       dev.off() 
 }
 
