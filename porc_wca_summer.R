@@ -22,11 +22,33 @@ porc.locs <- subset(porc.locs, type %in% c("V","V*","P","P*","L"))
 porc.locs$utm_e <- as.numeric(porc.locs$utm_e)
 porc.locs$utm_n <- as.numeric(porc.locs$utm_n)
 ## check date format before running line 51 or 52
-#porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y") 
+porc.locs$date <- as.Date(porc.locs$date, "%m/%d/%Y") 
 #porc.locs$date <- as.Date(porc.locs$date, origin = as.Date("1899-12-30"))
 
-## Separate out summer locations
-sum.locs <- porc.locs[porc.locs$date < "2015-11-01",]
+## Incorporate GPS data (1 random point per day)
+gps.pts <- read.csv("daily.gps.csv")
+gps.pts$type <- rep("gps", nrow(gps.pts))
+gps.pts$az <- rep(NA, nrow(gps.pts))
+gps.pts.df <- data.frame(gps.pts$Date, gps.pts$Animal.ID, gps.pts$Session, gps.pts$type,
+                      gps.pts$Time, gps.pts$az, gps.pts$UTM.E, gps.pts$UTM.N)
+colnames(gps.pts.df) <- colnames(porc.locs)
+gps.pts.df$date <- as.Date(gps.pts.df$date, "%Y-%m-%d")
+gps.pts.df$id <- as.factor(gps.pts.df$id)
+
+## combine VHF with GPS points
+porc.locs <- rbind(porc.locs, gps.pts.df)
+
+## subset summer locations (before Nov 1 or after March 1)
+sum.locs <- porc.locs[(porc.locs$date < "2015-11-01") | (porc.locs$date > "2016-02-29"), ]
+
+## Keep only animals with >= 5 locations
+n <- table(porc.locs$id)
+porc.locs <- subset(porc.locs, id %in% names(n[n >= 5]), drop=TRUE)
+porc.locs <- droplevels(porc.locs)
+
+n <- table(sum.locs$id)
+sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
+sum.locs <- droplevels(sum.locs)
 
 ## Load veg data
 veg <- readOGR(dsn="shapefiles", layer="Veg categories CA", verbose=TRUE)
@@ -97,13 +119,13 @@ for (i in ids){
 }
 
 ## it's cool to look at a few here:
-image(ud.clipped.list[[13]])
+image(ud.clipped.list[[15]])
 plot(veg, add=TRUE)
-plot(contour.list[[13]], add=TRUE, border="blue", lwd=2)
-plot(contour.summer.list[[13]], add=TRUE, border="green", lwd=2)
+plot(contour.list[[15]], add=TRUE, border="blue", lwd=2)
+plot(contour.summer.list[[15]], add=TRUE, border="green", lwd=2)
 
 ## output KDE areas
-#write.csv(kde.areas, "csvs/kde_areas_050316.csv")
+#write.csv(kde.areas, "csvs/kde_areas_w-gps_050916.csv")
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
@@ -123,7 +145,7 @@ for(i in ids){
 }
 
 ## wireframe plots! better function to get lat/lon or put it on a map?
-wireframe(height ~ x * y, data=height.list[[12]], drape=TRUE, main="15.13 summer UD height")
+wireframe(height ~ x * y, data=height.list[[17]], drape=TRUE, main="15.13 summer UD height")
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
@@ -209,7 +231,7 @@ for (i in ids){
 
 ## good, no self-intersection errors!
 ## any missing polygons at edges?
-plot(veg.99kdes[[12]]) #all look great!
+plot(veg.99kdes[[17]]) #all look great!
 
 ######################
 ## 6. Subtract differences in log-transformed availability data from the
@@ -236,7 +258,7 @@ for (i in ids){
         final.table <- rbind(final.table, final.df)
 }
 
-write.csv(final.table, "csvs/summer_wt_comp_analysis_050516.csv")
+write.csv(final.table, "csvs/summer_wt_comp_analysis_050916.csv")
 
 ## box plot:
 par(mar=c(5, 9, 3, 3), xpd=FALSE)
@@ -340,10 +362,13 @@ for (i in ids){
 ## may need to run this again to be able to plot again:
 #dev.off()
 
+## quick and dirty home range plot:
+
 ids.m <- c("15.03", "15.04", "15.06", "15.11", "15.14", "16.15", "16.18")
 ids.f <- c("15.01", "15.02", "15.05", "15.07", "15.08", "15.09", "15.10", "15.12", "15.13", "16.16", "16.17")
 ids.m <- c(3, 4, 6, 11, 14, 15, 17)
 ids.f <- c(2, 5, 7, 8, 9, 10, 12, 13, 16)
+
 plot(veg.ext, lwd = 2)
 for (i in ids.m){
         plot(contour.list[[i]], add=TRUE, col='gray')
@@ -357,6 +382,7 @@ plot(veg.ext, lwd = 2)
 legend("right", inset=c(0.1,0), legend = c("Female", "Male"), fill = c('gray', 'black'), 
        density = c(NA, 20), cex=1.2, title = "99% KDEs")
 scalebar(1000, xy=click(), type='bar', divs=2, below = "m")
+
 ## females
 plot(contour.list[[2]], add=TRUE, col='gray')
 plot(contour.list[[12]], add=TRUE, col='gray')
@@ -378,3 +404,21 @@ plot(contour.list[[14]], add=TRUE, density = 20)
 plot(contour.list[[15]], add=TRUE, density = 20)
 plot(contour.list[[17]], add=TRUE, density = 20)
 
+## make veg map
+plot(veg)
+plot(veg[veg$Class_2 == "Beach",], add=TRUE, col="khaki1")
+plot(veg[veg$Class_2 == "Beachgrass dune",], add=TRUE, col="khaki3")
+plot(veg[veg$Class_2 == "Brackish marsh",], add=TRUE, col="aquamarine")
+plot(veg[veg$Class_2 == "Coastal scrub",], add=TRUE, col="khaki4")
+plot(veg[veg$Class_2 == "Conifer forest",], add=TRUE, col="darkolivegreen4")
+plot(veg[veg$Class_2 == "Freshwater marsh",], add=TRUE, col="cadetblue1")
+plot(veg[veg$Class_2 == "Fruit tree",], add=TRUE, col="coral1")
+plot(veg[veg$Class_2 == "Meadow",], add=TRUE, col="yellow3")
+plot(veg[veg$Class_2 == "Pasture",], add=TRUE, col="darkolivegreen3")
+plot(veg[veg$Class_2 == "Shrub swale",], add=TRUE, col="darkseagreen3")
+plot(veg[veg$Class_2 == "Wooded swale",], add=TRUE, col="aquamarine4")
+
+scalebar(1000, xy=click(), type='bar', divs=2, below = "m")
+
+plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="black")
+plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="red")

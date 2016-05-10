@@ -7,9 +7,10 @@
 ## 1. First, load porcupine location data & veg data
 ######################
 
+head(porc.locs) # this should have all VHF and GPS points (1 per day)
+
 ## Separate out winter locations
-win.locs <- porc.locs[porc.locs$date > "2015-11-01",]
-win.locs <- win.locs[win.locs$date < "2016-03-01",]
+win.locs <- porc.locs[(porc.locs$date > "2015-10-31") & (porc.locs$date < "2016-03-01"), ]
 
 ## Keep only animals with >= 5 locations
 n <- table(win.locs$id)
@@ -79,7 +80,7 @@ plot(contour.list$`16.15`, add=TRUE, border="blue", lwd=2)
 plot(contour.winter.list$`16.15`, add=TRUE, border="green", lwd=2)
 
 ## output KDE areas
-#write.csv(kde.areas, "csvs/kde_areas_winter_050416.csv")
+#write.csv(kde.areas, "csvs/kde_areas_winter_050916.csv")
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
@@ -176,7 +177,7 @@ for (i in ids){
 
 ## good, no self-intersection errors!
 ## any missing polygons at edges?
-plot(veg.99kdes$`16.15`) #all look great!
+plot(veg.99kdes$`16.17`) #all look great!
 
 ######################
 ## 6. Subtract differences in log-transformed availability data from the
@@ -203,7 +204,7 @@ for (i in ids){
       final.table.winter <- rbind(final.table.winter, final.df)
 }
 
-write.csv(final.table.winter, "csvs/wt_comp_analysis_winter_050516.csv")
+write.csv(final.table.winter, "csvs/wt_comp_analysis_winter_w-gps_050916.csv")
 
 ## box plot:
 par(mar=c(5, 9, 3, 3), xpd=FALSE)

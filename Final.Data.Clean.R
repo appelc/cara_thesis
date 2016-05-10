@@ -3,20 +3,18 @@ library(sp)
 library(chron)
 
 #### First, read data from googlesheets
-my_sheets <- gs_ls()                 
-my_sheets                            
-gps.pts <- gs_title("Porc GPS data")
-gps.pts
-gps <- data.frame(gs_read_csv(ss=gps.pts, ws="porcGPS", is.na(TRUE), range = cell_cols(1:7), 
-                          stringsAsFactors=FALSE))
+gs_ls()                 
+gps.data <- gs_title("Porc GPS data")
+## "gs_read_csv" is MUCH faster but I can't get range=cell_cols(1:7) to work
+gps <- data.frame(gs_read_csv(ss=gps.data, ws="porcGPS", is.na(TRUE), stringsAsFactors=FALSE))
 head(gps)
-gps <- gps[!is.na(gps$Animal.ID),]
+#gps <- gps[!is.na(gps$Animal.ID),]
 gps$Animal.ID <- as.factor(gps$Animal.ID)
 gps$Date <- as.Date(gps$Date, "%m/%d/%Y")
 #gps$Date <- as.Date("1900-01-01") + gps$Date
 test.date <- as.character(gps$Date)
 test.time <- as.character(gps$Time)
-#gps$Time <- chron(times = gps$Time, format = c(times = "%I:%M %p"))
+#gps$Time <- chron(times = gps$Time, format = c(times = "%I:%M:%S %p"))
 posix.test <- as.POSIXct(strptime(paste(test.date, test.time), "%Y-%m-%d %I:%M:%S %p"), tz="America/Los_Angeles")
 posix.test.pdt <- as.POSIXct(format(posix.test, tz="America/Los_Angeles", usetz=TRUE))
 gps$posix <- posix.test.pdt
@@ -137,7 +135,6 @@ count_outliers <- function(utm.nd.gps, minimum){
   return(nrow(out.gps))
 } 
 
-
 num.outliers <- NULL
 minima <- seq(from=1, to=20, by=1)
 for(i in 1:length(minima)){
@@ -153,31 +150,31 @@ write.csv(clean.data, no.out.file)
 unique(clean.data$ID_Session)
 
 ## try with just one animal/session
-oak1 <- clean.data[clean.data$ID_Session == "16.17_1",]
-oak1$ID_Session <- droplevels(oak1$ID_Session)
-oak1.spdf <- SpatialPointsDataFrame((data.frame(oak1$UTM.N, oak1$UTM.E)), data = oak1,
+nemo1 <- clean.data[clean.data$ID_Session == "16.15_1",]
+nemo1$ID_Session <- droplevels(nemo1$ID_Session)
+nemo1.spdf <- SpatialPointsDataFrame((data.frame(nemo1$UTM.N, nemo1$UTM.E)), data = nemo1,
                                     proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
 
 ## how does it compare to before removing outliers?
-oak1.outliers <- utm.gps[utm.gps$ID_Session == "16.17_1",]
-oak1.outliers$ID_Session <- droplevels(oak1.outliers$ID_Session)
-oak1.outliers.spdf <- SpatialPointsDataFrame((data.frame(oak1.outliers$UTM.N, oak1.outliers$UTM.E)),
-                                             data = oak1.outliers,
+nemo1.outliers <- utm.gps[utm.gps$ID_Session == "16.15_1",]
+nemo1.outliers$ID_Session <- droplevels(nemo1.outliers$ID_Session)
+nemo1.outliers.spdf <- SpatialPointsDataFrame((data.frame(nemo1.outliers$UTM.N, nemo1.outliers$UTM.E)),
+                                             data = nemo1.outliers,
                                              proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
-plot(oak1.outliers.spdf, col="red")
-plot(oak1.spdf, add=TRUE, col="black")
+plot(nemo1.outliers.spdf, col="red")
+plot(nemo1.spdf, add=TRUE, col="black")
 
-## now how would you sample 1 per 24 hrs?
+## now sample 1 per 24 hrs:
 #1. subset for ID_Session
 #2. get unique date names
 #3. sample 1 in each unique date name
 
 daily.gps <- NULL
+gps.samples <- NULL
 
 for (i in levels(clean.data$ID_Session)){
         gps.i <- clean.data[clean.data$ID_Session == i,]
         gps.i$ID_Session <- droplevels(gps.i$ID_Session)
-        # make into SPDF?
         gps.samples <- NULL
       for (j in unique(gps.i$Date)){
           date.j <- gps.i[gps.i$Date == j,]
@@ -187,3 +184,5 @@ for (i in levels(clean.data$ID_Session)){
     }
       daily.gps <- rbind(daily.gps, gps.samples)
 }
+
+write.csv(daily.gps, 'daily.gps.csv')
