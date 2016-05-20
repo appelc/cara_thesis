@@ -175,8 +175,8 @@ points(utm_n ~ utm_e, data=sum.locs[sum.locs$id == "15.14",], col="green", pch=1
 ######################
 ## 5. For weighted compositional analysis: 
 ## sum raw UD values by veg type and divide the summed UD values by the 
-## total UD value of all patches to obtain a UD-weighted estimate of use 
-## for each habitat type for each individual animal 
+## total UD value of all patches to obtain a "UD-weighted estimate of use 
+## for each habitat type for each individual animal" 
 ## - (Millspaugh et al. 2004 p. 391)
 ######################
 
