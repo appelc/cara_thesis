@@ -61,6 +61,42 @@ ggplot(data=porc.wts, aes(x = date, y = wt, group = id)) +
                       breaks = c('Female', 'Male'),
                       values = c(15, 16))
 
+
+##########################################################
+### (1b) descriptive stats
+##########################################################
+
+## weight at capture (summer): males vs. females
+sum.f <- porc.wts[c(1, 2, 5, 7, 8, 9, 10, 12, 13),]
+sum.m <- porc.wts[c(3, 4, 6, 11, 15),]
+
+mean(sum.f$kg)
+(sd(sum.f$kg)) / (sqrt(nrow(sum.f)))
+
+mean(sum.m$kg)
+(sd(sum.m$kg)) / (sqrt(nrow(sum.m)))  
+
+t.test(sum.f$kg, sum.m$kg, paired = FALSE) # no sig diff between weights at capture
+
+## weight at capture (winter): males vs. females
+win.f <- porc.wts[c(43, 44),]
+win.m <- porc.wts[c(41, 45),]
+
+mean(win.f$kg)
+(sd(win.f$kg)) / (sqrt(2))
+
+mean(win.m$kg)
+(sd(win.m$kg)) / (sqrt(2))
+
+t.test(win.f$kg, win.m$kg, paired = FALSE) # no sig diff between weights at capture
+
+## weight at capture (all together)
+cap.wts <- rbind(sum.f, sum.m, win.f, win.m)
+mean(cap.wts$kg)
+(sd(cap.wts$kg)) / (sqrt(nrow(cap.wts)))
+
+
+
 ##########################################################
 ### (2) linear model to find informed seasonal cutoff
 ##########################################################
@@ -134,6 +170,7 @@ w.avgs$w_avg <- round(w.avgs$w_avg, 3)
 
 ## now combine them 
 ## hmm, maybe I could even leave in ones that only have winter until this point
+## need dplyr for 'left_join'
 avg.wts <- left_join(s.avgs, w.avgs) ## will get a warning; see next step
 avg.wts$id <- as.factor(avg.wts$id) 
 
@@ -145,6 +182,15 @@ avg.wts
 ## now do statistics!
 t.test(avg.wts$s_avg, avg.wts$w_avg, paired=TRUE)
 
+## females
+avg.wts.f <- avg.wts[avg.wts$sex == 'F',]
+t.test(avg.wts.f$s_avg, avg.wts.f$w_avg, paired = TRUE)
+
+## males
+avg.wts.m <- avg.wts[avg.wts$sex == 'M',]
+t.test(avg.wts.m$s_avg, avg.wts.m$w_avg, paired = TRUE)
+
+## 
 mean_s <- mean(avg.wts$s_avg)
 mean_s # 8.497 kg ## why do I get a different answer now? 8.192 kg (05/05/16)
 mean_w <- mean(avg.wts$w_avg)
