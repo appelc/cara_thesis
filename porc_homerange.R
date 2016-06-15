@@ -16,7 +16,7 @@ colnames(porc.vhf) <- c("date", "id", "sess", "type", "time", "az", "utm_e", "ut
 porc.vhf <- subset(porc.vhf, type %in% c("V","V*","P","P*","L"))
 porc.vhf$utm_e <- as.numeric(porc.vhf$utm_e)
 porc.vhf$utm_n <- as.numeric(porc.vhf$utm_n)
-## check date format before running one of the next lines
+## check date class before running one of the next lines
 porc.vhf$date <- as.Date(porc.vhf$date, "%m/%d/%Y") 
 #porc.vhf$date <- as.Date(porc.vhf$date, origin = as.Date("1899-12-30"))
 
@@ -104,7 +104,7 @@ for (i in ids){
 }
 
 ## output KDE areas
-write.csv(kde.areas, "csvs/kde_areas_w-gps_051916.csv")
+write.csv(kde.areas, "csvs/kde_areas_w-gps_061416.csv")
 
 ## manipulate list
 ids <- names(kde.areas)
@@ -185,137 +185,73 @@ mcp.all <- rbind(mcp.all95.df, mcp.sum95.df, mcp.win95.df)
 ### Now do analysis & try overlap metrics
 ##############################
 
-hr.all <- rbind(kde.all, mcp.all)
+hr.all <- rbind(kde.all, mcp.all) # combine MCP and KDE
 hr.all$sex[hr.all$id %in% c('15.01', '15.02', '15.05', '15.07', '15.08', '15.09', '15.10', '15.12', '15.13', '16.16', '16.17')] <- 'f'
 hr.all$sex[hr.all$id %in% c('15.03', '15.04', '15.06', '15.11', '15.14', '16.15', '16.18')] <- 'm'
 
-hr.f <- hr.all[hr.all$id %in% c('15.01', '15.02', '15.05', '15.07', '15.08', '15.09', '15.10', '15.12', '15.13', '16.16', '16.17'),]
-hr.m <- hr.all[hr.all$id %in% c('15.03', '15.04', '15.06', '15.11', '15.14', '16.15', '16.18'),]
+## aggregate and compute SE
+hr.summary <- aggregate(hr.all$area, by = list(sex = hr.all$sex, season = hr.all$season, method = hr.all$method, percent = hr.all$percent),
+                        FUN = function(x) c(mean = mean(x), sd = sd(x), n = length(x)))
+hr.summary <- do.call(data.frame, hr.summary) # make data frames instead of matrices
+colnames(hr.summary) <- c('sex', 'season', 'method', 'percent', 'mean', 'sd', 'n')
+hr.summary$se <- hr.summary$sd / sqrt(hr.summary$n)
+hr.summary$names <- c(paste(hr.summary$sex, hr.summary$season, sep = '_'))
+write.csv(hr.summary, 'homeranges061416.csv')
 
-## all, females, kde
-mean <- mean(hr.f$area[hr.f$percent == 95 & hr.f$season == 'all' & hr.f$method == 'kde'])
-n <- nrow(hr.f[hr.f$percent == 95 & hr.f$season == 'all' & hr.f$method == 'kde',])
-sd <- sd(hr.f$area[hr.f$percent == 95 & hr.f$season == 'all' & hr.f$method == 'kde'])
-se <- sd/(sqrt(n))
-all.f.kde <- cbind('all', 'f', 'kde', mean, n, se)
+## now do this all over again using ONLY animals with both summer and winter home ranges
+## b/c these are the ones used in paired t-tests below
 
-## all, females, mcp
-mean <- mean(hr.f$area[hr.f$percent == 95 & hr.f$season == 'all' & hr.f$method == 'mcp'])
-n <- nrow(hr.f[hr.f$percent == 95 & hr.f$season == 'all' & hr.f$method == 'mcp',])
-sd <- sd(hr.f$area[hr.f$percent == 95 & hr.f$season == 'all' & hr.f$method == 'mcp'])
-se <- sd/(sqrt(n))
-all.f.mcp <- cbind('all', 'f', 'mcp', mean, n, se)
+hr.all.mod <- subset(hr.all, id %in% c('15.01', '15.02', '15.03', '15.07', '15.11', '15.12', '15.13', '15.14', '16.15', '16.17', '16.18'), drop = TRUE)
+hr.all.mod$id <- droplevels(hr.all.mod$id)
+hr.mod.summary <- aggregate(hr.all.mod$area, by = list(sex = hr.all.mod$sex, season = hr.all.mod$season, method = hr.all.mod$method, percent = hr.all.mod$percent),
+                        FUN = function(x) c(mean = mean(x), sd = sd(x), n = length(x)))
+hr.mod.summary <- do.call(data.frame, hr.mod.summary) # make data frames instead of matrices
+colnames(hr.mod.summary) <- c('sex', 'season', 'method', 'percent', 'mean', 'sd', 'n')
+hr.mod.summary$se <- hr.mod.summary$sd / sqrt(hr.mod.summary$n)
+hr.mod.summary$names <- c(paste(hr.mod.summary$sex, hr.mod.summary$season, sep = '_'))
+write.csv(hr.mod.summary, 'homeranges_mod061416.csv')
 
-## all, males, kde
-mean <- mean(hr.m$area[hr.m$percent == 95 & hr.m$season == 'all' & hr.m$method == 'kde'])
-n <- nrow(hr.m[hr.m$percent == 95 & hr.m$season == 'all' & hr.m$method == 'kde',])
-sd <- sd(hr.m$area[hr.m$percent == 95 & hr.m$season == 'all' & hr.m$method == 'kde'])
-se <- sd/(sqrt(n))
-all.m.kde <- cbind('all', 'm', 'kde', mean, n, se)
+#################################################
+## now make plots
+#################################################
 
-## all, males, mcp
-mean <- mean(hr.m$area[hr.m$percent == 95 & hr.m$season == 'all' & hr.m$method == 'mcp'])
-n <- nrow(hr.m[hr.m$percent == 95 & hr.m$season == 'all' & hr.m$method == 'mcp',])
-sd <- sd(hr.m$area[hr.m$percent == 95 & hr.m$season == 'all' & hr.m$method == 'mcp'])
-se <- sd/(sqrt(n))
-all.m.mcp <- cbind('all', 'm', 'mcp', mean, n, se)
+## first, subset only 95% KDEs
+hr.summary.kde <- hr.summary[hr.summary$method == 'kde' & hr.summary$percent == '95',]
+hr.summary.kde$sex <- as.character(hr.summary.kde$sex)
+hr.summary.kde$sex[hr.summary.kde$sex == 'm'] <- 'males'
+hr.summary.kde$sex[hr.summary.kde$sex == 'f'] <- 'females'
 
-## sum, females, kde
-mean <- mean(hr.f$area[hr.f$percent == 95 & hr.f$season == 'summer' & hr.f$method == 'kde'])
-n <- nrow(hr.f[hr.f$percent == 95 & hr.f$season == 'summer' & hr.f$method == 'kde',])
-sd <- sd(hr.f$area[hr.f$percent == 95 & hr.f$season == 'summer' & hr.f$method == 'kde'])
-se <- sd/(sqrt(n))
-sum.f.kde <- cbind('summer', 'f', 'kde', mean, n, se)
+hr.mod.summary.kde <- hr.mod.summary[hr.mod.summary$method == 'kde' & hr.mod.summary$percent == '95',]
+hr.mod.summary.kde$sex <- as.character(hr.mod.summary.kde$sex)
+hr.mod.summary.kde$sex[hr.mod.summary.kde$sex == 'm'] <- 'males'
+hr.mod.summary.kde$sex[hr.mod.summary.kde$sex == 'f'] <- 'females'
 
-## sum, females, mcp
-mean <- mean(hr.f$area[hr.f$percent == 95 & hr.f$season == 'summer' & hr.f$method == 'mcp'])
-n <- nrow(hr.f[hr.f$percent == 95 & hr.f$season == 'summer' & hr.f$method == 'mcp',])
-sd <- sd(hr.f$area[hr.f$percent == 95 & hr.f$season == 'summer' & hr.f$method == 'mcp'])
-se <- sd/(sqrt(n))
-sum.f.mcp <- cbind('summer', 'f', 'mcp', mean, n, se)
+## now plot with all animals
+#par(mar = c(5, 6, 4, 5) + 0.1)
+tabbedMeans <- tapply(hr.summary.kde$mean, list(hr.summary.kde$season, hr.summary.kde$sex), function(x) c(x = x))
+tabbedSE <- tapply(hr.summary.kde$se, list(hr.summary.kde$season, hr.summary.kde$sex), function(x) c(x = x))
+barCenters <- barplot(height = tabbedMeans, beside = TRUE, las = 1, ylim = c(0, 0.6), cex.names = 1,
+                      main = "Porcupine home ranges", ylab = "95% KDE area (sq. km)",
+                      border = "black", axes = TRUE, legend.text = TRUE,
+                      args.legend = list(title = "Season", x = "topright", cex = .9))
+segments(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE, lwd = 1.5)
+arrows(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE, lwd = 1.5, angle = 90, code = 3, length = 0.05)
 
-## sum, males, kde
-mean <- mean(hr.m$area[hr.m$percent == 95 & hr.m$season == 'summer' & hr.m$method == 'kde'])
-n <- nrow(hr.m[hr.m$percent == 95 & hr.m$season == 'summer' & hr.m$method == 'kde',])
-sd <- sd(hr.m$area[hr.m$percent == 95 & hr.m$season == 'summer' & hr.m$method == 'kde'])
-se <- sd/(sqrt(n))
-sum.m.kde <- cbind('summer', 'm', 'kde', mean, n, se)
-
-## sum, males, mcp
-mean <- mean(hr.m$area[hr.m$percent == 95 & hr.m$season == 'summer' & hr.m$method == 'mcp'])
-n <- nrow(hr.m[hr.m$percent == 95 & hr.m$season == 'summer' & hr.m$method == 'mcp',])
-sd <- sd(hr.m$area[hr.m$percent == 95 & hr.m$season == 'summer' & hr.m$method == 'mcp'])
-se <- sd/(sqrt(n))
-sum.m.mcp <- cbind('summer', 'm', 'mcp', mean, n, se)
-
-## win, females, kde
-mean <- mean(hr.f$area[hr.f$percent == 95 & hr.f$season == 'winter' & hr.f$method == 'kde'])
-n <- nrow(hr.f[hr.f$percent == 95 & hr.f$season == 'winter' & hr.f$method == 'kde',])
-sd <- sd(hr.f$area[hr.f$percent == 95 & hr.f$season == 'winter' & hr.f$method == 'kde'])
-se <- sd/(sqrt(n))
-win.f.kde <- cbind('winter', 'f', 'kde', mean, n, se)
-
-## win, females, mcp
-mean <- mean(hr.f$area[hr.f$percent == 95 & hr.f$season == 'winter' & hr.f$method == 'mcp'])
-n <- nrow(hr.f[hr.f$percent == 95 & hr.f$season == 'winter' & hr.f$method == 'mcp',])
-sd <- sd(hr.f$area[hr.f$percent == 95 & hr.f$season == 'winter' & hr.f$method == 'mcp'])
-se <- sd/(sqrt(n))
-win.f.mcp <- cbind('winter', 'f', 'mcp', mean, n, se)
-
-## win, males, kde
-mean <- mean(hr.m$area[hr.m$percent == 95 & hr.m$season == 'winter' & hr.m$method == 'kde'])
-n <- nrow(hr.m[hr.m$percent == 95 & hr.m$season == 'winter' & hr.m$method == 'kde',])
-sd <- sd(hr.m$area[hr.m$percent == 95 & hr.m$season == 'winter' & hr.m$method == 'kde'])
-se <- sd/(sqrt(n))
-win.m.kde <- cbind('winter', 'm', 'kde', mean, n, se)
-
-## win, males, mcp
-mean <- mean(hr.m$area[hr.m$percent == 95 & hr.m$season == 'winter' & hr.m$method == 'mcp'])
-n <- nrow(hr.m[hr.m$percent == 95 & hr.m$season == 'winter' & hr.m$method == 'mcp',])
-sd <- sd(hr.m$area[hr.m$percent == 95 & hr.m$season == 'winter' & hr.m$method == 'mcp'])
-se <- sd/(sqrt(n))
-win.m.mcp <- cbind('winter', 'm', 'mcp', mean, n, se)
-
-## sum, both, kde
-mean <- mean(hr.all$area[hr.all$percent == 95 & hr.all$season == 'summer' & hr.all$method == 'kde'])
-n <- nrow(hr.all[hr.all$percent == 95 & hr.all$season == 'summer' & hr.all$method == 'kde',])
-sd <- sd(hr.all$area[hr.all$percent == 95 & hr.all$season == 'summer' & hr.all$method == 'kde'])
-se <- sd/(sqrt(n))
-sum.both.kde <- cbind('summer', 'both', 'kde', mean, n, se)
-
-## sum, both, mcp
-mean <- mean(hr.all$area[hr.all$percent == 95 & hr.all$season == 'summer' & hr.all$method == 'mcp'])
-n <- nrow(hr.all[hr.all$percent == 95 & hr.all$season == 'summer' & hr.all$method == 'mcp',])
-sd <- sd(hr.all$area[hr.all$percent == 95 & hr.all$season == 'summer' & hr.all$method == 'mcp'])
-se <- sd/(sqrt(n))
-sum.both.mcp <- cbind('summer', 'both', 'mcp', mean, n, se)
-
-## win, both, kde
-mean <- mean(hr.all$area[hr.all$percent == 95 & hr.all$season == 'winter' & hr.all$method == 'kde'])
-n <- nrow(hr.all[hr.all$percent == 95 & hr.all$season == 'winter' & hr.all$method == 'kde',])
-sd <- sd(hr.all$area[hr.all$percent == 95 & hr.all$season == 'winter' & hr.all$method == 'kde'])
-se <- sd/(sqrt(n))
-win.both.kde <- cbind('winter', 'both', 'kde', mean, n, se)
-
-## win, both, mcp
-mean <- mean(hr.all$area[hr.all$percent == 95 & hr.all$season == 'winter' & hr.all$method == 'mcp'])
-n <- nrow(hr.all[hr.all$percent == 95 & hr.all$season == 'winter' & hr.all$method == 'mcp',])
-sd <- sd(hr.all$area[hr.all$percent == 95 & hr.all$season == 'winter' & hr.all$method == 'mcp'])
-se <- sd/(sqrt(n))
-win.both.mcp <- cbind('winter', 'both', 'mcp', mean, n, se)
-
-#
-
-homeranges <- rbind(all.f.kde, all.f.mcp, all.m.kde, all.m.mcp, sum.f.kde, sum.f.mcp,
-                    sum.m.kde, sum.m.mcp, win.f.kde, win.f.mcp, win.m.kde, win.m.mcp,
-                    sum.both.kde, sum.both.mcp, win.both.kde, win.both.mcp)
-write.csv(homeranges, 'csvs/homeranges051916.csv')
+## now plot with only animals used in paired t-tests
+tabbedMeans <- tapply(hr.mod.summary.kde$mean, list(hr.mod.summary.kde$season, hr.mod.summary.kde$sex), function(x) c(x = x))
+tabbedSE <- tapply(hr.mod.summary.kde$se, list(hr.mod.summary.kde$season, hr.mod.summary.kde$sex), function(x) c(x = x))
+barCenters <- barplot(height = tabbedMeans, beside = TRUE, las = 1, ylim = c(0, 0.6), cex.names = 1,
+                      main = "Porcupine home ranges", ylab = "95% KDE area (sq. km)",
+                      border = "black", axes = TRUE, legend.text = TRUE,
+                      args.legend = list(title = "Season", x = "topright", cex = .9))
+segments(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE, lwd = 1.5)
+arrows(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE, lwd = 1.5, angle = 90, code = 3, length = 0.05)
 
 #################################################
 ## t-tests: use 95% KDE for now
 #################################################
 
-## female summer vs. winter
+##### female summer vs. winter
 s.f <- hr.all[hr.all$sex == 'f' & hr.all$season == 'summer' & hr.all$method == 'kde' & hr.all$percent == 95,]
 w.f <- hr.all[hr.all$sex == 'f' & hr.all$season == 'winter' & hr.all$method == 'kde' & hr.all$percent == 95,]
 s.f2 <- s.f[-c(3, 5, 6, 7),] # only keep those with both summer & winter for paired t-test
@@ -323,7 +259,22 @@ s.f2 <- s.f[-c(3, 5, 6, 7),] # only keep those with both summer & winter for pai
 t.test(s.f2$area, w.f$area, paired = TRUE) # n = 6
 t.test(s.f$area, w.f$area, paired = FALSE) # n = 10 / 6
 
-## male summer vs. winter
+## aggregate, compute standard error, plot, and add error bars
+females <- rbind(w.f, s.f2)
+f.summary <- aggregate(females$area, by = list(season = females$season),
+                       FUN = function(x) c(mean = mean(x), sd = sd(x), n = length(x)))
+f.summary <- do.call(data.frame, f.summary) # make data frames instead of matrices
+f.summary$se <- f.summary$x.sd / sqrt(f.summary$x.n)
+colnames(f.summary) <- c("season", "mean", "sd", "n", "se")
+barCenters <- barplot(height = f.summary$mean, names.arg = f.summary$names, beside = true, las = 2,
+                      ylim = c(0, 0.6), cex.names = 0.75, xaxt = "n",
+                      main = "Female home ranges",
+                      ylab = "95% KDE area (sq. km)", border = "black", axes = TRUE)
+text(x = barCenters, y = par("usr")[3] - 0.03, adj = 0.5, labels = f.summary$season, xpd = TRUE)
+segments(barCenters, f.summary$mean - f.summary$se, barCenters, f.summary$mean + f.summary$se, lwd = 1.5)
+arrows(barCenters, f.summary$mean - f.summary$se * 2, barCenters, f.summary$mean + f.summary$se * 2, lwd = 1.5, angle = 90, code = 3, length = 0.05)
+
+##### male summer vs. winter
 s.m <- hr.all[hr.all$sex == 'm' & hr.all$season == 'summer' & hr.all$method == 'kde' & hr.all$percent == 95,]
 w.m <- hr.all[hr.all$sex == 'm' & hr.all$season == 'winter' & hr.all$method == 'kde' & hr.all$percent == 95,]
 s.m2 <- s.m[-c(2),]
@@ -344,6 +295,33 @@ s.both2 <- s.both[-c(4, 5, 7, 8, 9),]
 
 t.test(s.both2$area, w.both$area, paired = TRUE) # n = 11
 t.test(s.both$area, w.both$area, paired = FALSE) # n = 16 / 11
+
+
+######### try a different way
+head(hr.all)
+hr.summary <- aggregate(hr.all$area, by = list(sex = hr.all$sex, season = hr.all$season),
+                         FUN = function(x) c(mean = mean(x), sd = sd(x), n = length(x)))
+hr.summary <- do.call(data.frame, hr.summary) # make data frames instead of matrices
+
+## compute standard error
+hr.summary$se <- hr.summary$x.sd / sqrt(hr.summary$x.n)
+colnames(hr.summary) <- c("sex", "season", "mean", "sd", "n", "se")
+hr.summary$names <- c(paste(hr.summary$sex, hr.summary$season, sep = '_'))
+
+## plot
+#par(mar = c(5, 6, 4, 5) + 0.1)
+plotTop <- max(hr.summary$mean) + hr.summary[hr.summary$mean == max(hr.summary$mean), 6] * 3
+barCenters <- barplot(height = hr.summary$mean, names.arg = hr.summary$names, beside = true, las = 2,
+                      ylim = c(0, plotTop), cex.names = 0.75, xaxt = "n",
+                      main = "Porcupine home ranges",
+                      ylab = "95% KDE area", border = "black", axes = TRUE)
+
+# Specify the groupings. use srt = 45 for a 45 degree string rotation
+text(x = barCenters, y = par("usr")[3] - 0.03, srt = 45, adj = 1, labels = hr.summary$names, xpd = TRUE)
+segments(barCenters, hr.summary$mean - hr.summary$se, barCenters, hr.summary$mean + hr.summary$se, lwd = 1.5)
+arrows(barCenters, hr.summary$mean - hr.summary$se * 2, barCenters, hr.summary$mean + hr.summary$se * 2, lwd = 1.5, angle = 90, code = 3, length = 0.05)
+
+#############################
 
 #### home range size vs. capture weight
 #### using "porc.wts" from "season-weight.R" script
