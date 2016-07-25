@@ -130,9 +130,13 @@ for (i in ids){
         }
         
         ## merge all 3 contours to make a single contour based on the outermost areas
-        outer_cont99.i <- union(cont99[[1]], cont99[[2]])
-          if ((length(cont99)) > 2) {
-              outer_cont99.i <- union(outer_cont99.i, cont99[[3]]) ## because not all have winter
+#        outer_cont99.i <- union(cont99[[1]], cont99[[2]])
+#          if ((length(cont99)) > 2) {
+#              outer_cont99.i <- union(outer_cont99.i, cont99[[3]]) ## because not all have winter
+#          }
+        outer_cont99.i <- merge(cont99[[1]], cont99[[2]])
+          if((length(cont99)) > 2) {
+              outer_Cont99.i <- merge(outer_cont99.i, cont99[[3]])
           }
         outer_cont99.i <- gUnaryUnion(outer_cont99.i) ## dissolve polygons but this gets rid of @data
         outer_cont99.i@polygons[[1]]@ID <- 'homerange' ## so it will match when creating SPDF below
