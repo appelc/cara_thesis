@@ -1,14 +1,16 @@
 ## Try weighted compositional analysis
 ## ala Millspaugh et al. 2006
 
-# STEP 1: import data
-# a) load data, clean, format
-# b) incorporate GPS points
-# c) subset summer/winter, keep animals with >= 5 locs per season
-# d) load veg data 
-
-# STEP 2: calculate UDs
-
+# STEP 1: import data, incorporate GPS points, subset summer/winter (with >=5 locs per season),
+#         and import veg data
+# STEP 2: calculate UDs and 99% contours for each animal (overall/summer/winter) and create
+#         overall outer contour boundary; clip UDs and store
+# STEP 3: Create a list of tables with id, coord, and UD height for each animal
+#         (at each each pixel)
+# STEP 4: Assign values of covariates (veg categories) to cells
+# STEP 5: Sum and divide the UD values per habitat type to get the "UD-weighted estimate of use"
+# STEP 6: calculate availability data from veg polygons clipped to each animal's outer contour
+# STEP 7-9: box plots, Wilk's lambda, etc.
 
 #install.packages("ruf", repos="http://www.stat.ucla.edu/~handcock")
 library(adehabitatHR)
@@ -22,7 +24,6 @@ library(ggplot2)
 library(maptools)
 library(dplyr)
 library(sp)
-library(spatstat)
 
 ######################
 ## 1. First, load porcupine location data & veg data
@@ -353,7 +354,7 @@ abline(v=0, lty = 1, col="red")
 ## **possible to get individual sel. values on the plot in and then the avg, instead of the box?
 
 ######################
-## 7. Compute Wilk's lambda to test for overall selection
+## 8. Compute Wilk's lambda to test for overall selection
 ######################
 
 ## function "manova" or "Wilks.test"? the latter is in package "rrcov"
