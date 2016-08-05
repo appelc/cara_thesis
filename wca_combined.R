@@ -180,7 +180,7 @@ plot(outer_cont99[[17]], add = TRUE, border = 'gray', lwd=2)
 
 ######################
 ## 3. Then, create a list of tables with id, coord, and UD height for each porc
-##    a. For UD height at each pixel
+##    a. For UD height at each pixel (grid cell)
 ######################
 
 ids <- unique(porc.locs.all$id)
@@ -358,7 +358,7 @@ axis(1)
 title(xlab = "Differences in log ratio", line=3)
 abline(v=0, lty = 1, col="red")
 
-## **possible to get individual sel. values on the plot in and then the avg, instead of the box?
+## **THIS IS THE OLD WAY... SEE BELOW
 
 sel_means_summer <- aggregate(sel ~ veg, data = summer.sel, FUN = mean)
 sel_means_summer$season <- rep('2', nrow(sel_means_summer))
@@ -421,18 +421,20 @@ for (i in 1:3){
       sel_i <- data.frame(final.tables$id[final.tables$season == i], final.tables$veg[final.tables$season == i], final.tables$sel[final.tables$season == i])
       colnames(sel_i) <- c('id', 'veg', 'sel')
       matrix_i <- reshape(data = sel_i, direction = 'wide', v.names = 'sel', idvar = 'id', timevar = 'veg', sep = '_')
+      names(matrix_i) <- gsub('sel_', '', names(matrix_i)) ## get rid of 'sel' in column names
       season_matrices[[i]] <- matrix_i
 }
 
 ## calculate differences in log ratio in relation to reference category
-ref <- 5    # this is the column for 'conifer forest' (my reference category)
+ref <- 5    # this is the column for 'conifer forest' (my reference category); can change it here
 d_matrices <- list()
 d_means <- list()
 
 for (i in 1:3){
       season <- season_matrices[[i]]
-      d_ref <- season[,2:10] - season[,ref] ## divide by column of the reference category
+      d_ref <- season[,2:10] - season[,ref] ## subtract the column of the reference category
       d_ref_df <- data.frame(season$id, d_ref)
+      names(d_ref_df) <- gsub('[.]', ' ', names(d_ref_df))
       d_matrices[[i]] <- d_ref_df ##store (will use for t-tests)
       d_means_i <- colMeans(d_ref_df[,2:10], na.rm = TRUE) ## is it OK to ignore NAs?
       d_means_df <- stack(d_means_i)
@@ -444,35 +446,37 @@ for (i in 1:3){
 d_means ## here are the ranks!
 ## summer most closely resembles 'all'
 
-## now do t-tests using columns in d_matrices
+## now do t-tests using data from the veg columns in d_matrices
 pairwise_ttests <- list()
 for (i in 1:3){
       season <- d_matrices[[i]][,-5] ## remove reference category
+    # first test between each category and the reference  
       pairwise_j <- NULL
     for (j in 2:9){
         ttest_j <- t.test(season[,j], mu = 0) ## 1-sample t-test against reference category
         ttest_j_df <- data.frame(j, 0, ttest_j$estimate, ttest_j$conf.int[1], ttest_j$conf.int[2], ttest_j$p.value) ## 0 stands for reference category ('veg type 0')
-        colnames(ttest_j_df) <- c('veg1', 'veg2', 'mean_diff', 'lci_95', 'uci_95', 'p')  
-        pairwise_j <- rbind(pairwise_j, ttest_j_df) ## store
-      
+        colnames(ttest_j_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')  
+        pairwise_j <- bind_rows(pairwise_j, ttest_j_df) ## store
+    # then test pairwise between all categories 
       pairwise_k  <- NULL
       for (k in 2:9){
         ttest_k <- t.test(season[,j], season[,k], paired = TRUE)
         ttest_k_df <- data.frame(j, k, ttest_k$estimate, ttest_k$conf.int[1], ttest_k$conf.int[2], ttest_k$p.value)
-        colnames(ttest_k_df) <- c('veg1', 'veg2', 'mean_diff', 'lci_95', 'uci_95', 'p')
-        pairwise_k <- rbind(pairwise_k, ttest_k_df)
+        colnames(ttest_k_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')
+        pairwise_k <- bind_rows(pairwise_k, ttest_k_df)
       }
-    pairwise_j <- rbind(pairwise_j, pairwise_k)
+    pairwise_j <- bind_rows(pairwise_j, pairwise_k)
+    veg_key <- data.frame((names(season)[2:9]), 2:9)
+    colnames(veg_key) <- c('veg', 'veg_id')
+    ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category
+    veg_key <- rbind(veg_key, ref_key)
+    pairwise_j$veg1 <- veg_key[match(pairwise_j$v1, veg_key$veg_id), 'veg'] 
+    pairwise_j$veg2 <- veg_key[match(pairwise_j$v2, veg_key$veg_id), 'veg']
     }      
   pairwise_ttests[[i]] <- pairwise_j
 }
 
-## veg: 2-8 correspond to veg types, need to re-associate with names (0 = reference type)
-## pull out the significant ones now for interpretation
-
-veg <- colnames(season[,2:9])
-veg_key <- data.frame(1:8, veg)
-
+## pull out the significant pairs now for interpretation
 pairwise_overall <- pairwise_ttests[[1]]
 sig_overall <- pairwise_overall[pairwise_overall$p <= 0.05,]
 sig_overall <- sig_overall[!is.na(sig_overall$veg1),]
@@ -486,7 +490,56 @@ sig_winter <- pairwise_winter[pairwise_winter$p <= 0.05,]
 sig_winter <- sig_winter[!is.na(sig_winter$veg1),]
 
 ##########################################################################
+## Boxplots:
 
+require(reshape2)
+
+## reshape/melt matrices and assign colors to veg classes for plotting:
+veg_class <- c('beach', 'beachgrass.dune', 'coastal.scrub', 'conifer.forest', 'fruit.tree', 'marsh', 'meadow', 'pasture', 'swale')
+veg_colors <- c("khaki1", "khaki3", "khaki4", "darkolivegreen4", "coral1", "aquamarine", "yellow3", "darkolivegreen3", "darkseagreen3")
+colors <- data.frame(veg_class, veg_colors)
+colors$veg_colors <- as.character(colors$veg_colors)
+
+summer_melt <- melt(d_matrices[[2]])
+colnames(summer_melt) <- c('id', 'veg', 'd')
+summer_melt$season <- rep('sum', nrow(summer_melt))
+summer_melt$rank <- d_means[[2]][match(summer_melt$veg, d_means[[2]]$veg), 3] ## where 3 is the 'rank' column in d_means[[2]]
+
+winter_melt <- melt(d_matrices[[3]])
+colnames(winter_melt) <- c('id', 'veg', 'd')
+winter_melt$season <- rep('win', nrow(winter_melt))
+winter_melt$rank <- d_means[[3]][match(winter_melt$veg, d_means[[3]]$veg), 3]
+
+## This plot is similar to Figure 5 in Millspaugh et al. 2006
+## - do I want horizontal or vertical? add '+ coord_flip()' 
+## - 'guide = FALSE' in scale_fill_manual turns off the legend (since I have axis labels)
+s <- ggplot(data = summer_melt, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        geom_boxplot() + geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-5, 5) + #or (-15, 5) like winter?
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+      theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 12, colour = 'black'),
+            axis.title = element_text(size = 12, colour = 'black'),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            panel.background = element_rect(fill = 'white'))
+s #summer (warning message is OK; it's because of the NAs)
+
+w <- ggplot(data = winter_melt, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        geom_boxplot() + geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-15.0, 5.0) +
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+      theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 12, colour = 'black'),
+            axis.title = element_text(size = 12, colour = 'black'),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            panel.background = element_rect(fill = 'white'))
+w #winter (warning message is OK; it's because of the NAs)
+
+##########################################################################
 ## Simple / old way (is this wrong?)
 
 ## calculate mean and sd of "sel" for each habitat type
