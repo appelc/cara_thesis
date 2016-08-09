@@ -98,7 +98,6 @@ kern.i <- list()
 outer_cont99 <- list()
 contours99 <- list()
 ud.third <- list()
-ud.second <- list()
 
 for (i in ids){
         locs.i <- porc.locs[porc.locs$id == i,]
@@ -163,14 +162,6 @@ for (i in ids){
             third.ud.i[[j]] <- clipped.ud.i
         }
         ud.third[[i]] <- third.ud.i
-        
-        # clip summer & winter UD grids to just the veg extent ('study area') for 2nd order analysis
-        second.ud.i <- list()
-        for (j in 1:length(kern.i)){
-            clipped.ud.i <- (kern.i[[j]])[veg.ext,]
-            second.ud.i[[j]] <- clipped.ud.i
-        }
-        ud.second[[i]] <- second.ud.i
 } 
 
 ## it's cool to look at a few here:
@@ -206,31 +197,23 @@ for(i in ids){
       }
   heights.list[[i]] <- heights.i 
 }
-
-## wireframe plots! better function to get lat/lon or put it on a map?
-wireframe(height ~ x * y, data = heights.list[[17]][[1]], drape=TRUE, main="15.17 overall UD height")
-## nice! again, first brackets are animal ID, second are season (1:all, 2:sum, 3:win)
-
-## 2nd ORDER: ORIGINAL SEASONAL UDS / ENTIRE STUDY AREA
+ 
+## 2nd ORDER: Also used clipped seasonal UDs but just make a table, not list (could also use this for 3rd)
 ids <- unique(porc.locs$id)
-second.heights.list <- list()
+heights.2 <- NULL
 
-for(i in ids){
-  second.heights.i <- list()
-  for(j in 1:length(ud.second[[i]])){
-    ud.i <- ud.second[[i]][[j]]
-    ud.height.i <- ud.i$ud
-    coords.i <- ud.i@coords
-    ht.coords.i <- data.frame((rep(i, length(ud.height.i))), ud.height.i, coords.i)
-    colnames(ht.coords.i) <- c("id", "height", "x", "y")
-    second.heights.i[[j]] <- data.frame(ht.coords.i) 
-  }
-  second.heights.list[[i]] <- second.heights.i 
+for (i in ids){
+  heights.i <- NULL
+      for(j in 1:length(ud.third[[i]])){
+        ud.i <- ud.third[[i]][[j]]
+        ud.height.i <- ud.i$ud
+        coords.i <- ud.i@coords
+        ht.coords.i <- data.frame((rep(i, length(ud.height.i))), rep(j, length(ud.height.i)), ud.height.i, coords.i)  
+        colnames(ht.coords.i) <- c('id', 'season', 'height', 'x', 'y')
+        heights.i <- rbind(heights.i, ht.coords.i)
+        }
+  heights.2 <- rbind(heights.2, heights.i)
 }
-
-## wireframe plots! better function to get lat/lon or put it on a map?
-wireframe(height ~ x * y, data = second.heights.list[[16]][[1]], drape=TRUE, main="15.17 overall UD height")
-## nice! again, first brackets are animal ID, second are season (1:all, 2:sum, 3:win)
 
 ######################
 ## 4. Assign values of covariates (veg class, canopy height) to cells
@@ -265,34 +248,18 @@ points(utm_n ~ utm_e, data=porc.locs[porc.locs$id == "16.18",], col="red", pch=1
 points(utm_n ~ utm_e, data=sum.locs[sum.locs$id == "16.18",], col="green", pch=16)
 points(utm_n ~ utm_e, data=win.locs[win.locs$id == "16.18",], col="blue", pch=16)
 
-## 2nd ORDER: ORIGINAL SEASONAL UDS / ENTIRE STUDY AREA
+#########################################
+## 2rd ORDER: use dataframe created above ('heights.2')
+### might not use this... 8/8/16
 ids <- unique(porc.locs$id)
-second.final.list <- list()
 
-for (i in ids){
-  final.i <- list()
-  for(j in 1:length(second.heights.list[[i]])){
-    ht.i <- second.heights.list[[i]][[j]]
-    spdf.i <- SpatialPointsDataFrame(data.frame(ht.i$x, ht.i$y),
-                                     data=data.frame(ht.i$id, ht.i$height),
-                                     proj4string = CRS(proj4string(veg)))
-    spdf.i@data$veg <- over(spdf.i, veg)$Class_4
-    df.i <- data.frame(i, spdf.i@data$ht.i.height, spdf.i@coords, spdf.i@data$veg)
-    colnames(df.i) <- c("id", "ud", "x", "y", "veg")
-    df.i <- df.i[!is.na(df.i$veg),]
-    final.i[[j]] <- df.i
-  }
-  second.final.list[[i]] <- final.i
-}
-
-## another cool figure:
-plot(spdf.i) ## or store the SPDFs a
-plot(veg, add=TRUE)
-#plot(contours99[[17]][[2]], add=TRUE, border="blue", lwd=2)
-plot(outer_cont99[[17]], add = TRUE, border = 'blue', lwd = 2)
-points(utm_n ~ utm_e, data=porc.locs[porc.locs$id == "16.18",], col="red", pch=16)
-points(utm_n ~ utm_e, data=sum.locs[sum.locs$id == "16.18",], col="green", pch=16)
-points(utm_n ~ utm_e, data=win.locs[win.locs$id == "16.18",], col="blue", pch=16)
+spdf.2 <- SpatialPointsDataFrame(data.frame(heights.2$x, heights.2$y),
+                                 data=data.frame(heights.2$id, heights.2$season, heights.2$height),
+                                 proj4string = CRS(proj4string(veg)))
+spdf.2@data$veg <- over(spdf.2, veg)$Class_4
+df.2 <- data.frame(spdf.2@data, spdf.2@coords)
+colnames(df.2) <- c("id", "season", "ud", "veg", "x", "y")
+df.2 <- df.2[!is.na(df.2$veg),] ## there were none anyway
 
 ######################
 ## 5. For weighted compositional analysis: 
@@ -312,40 +279,63 @@ points(utm_n ~ utm_e, data=win.locs[win.locs$id == "16.18",], col="blue", pch=16
 ## I'll do it the second way for now (change summed UD for each category to 1e-10 if it's 0)
 
 ## I don't think there end up being any -Inf in the summer data anyway
+veg.dummy <- data.frame(unique(veg@data$Class_4), 'NA')
+colnames(veg.dummy) <- c('veg', 'ud')
 
-######### THIRD ORDER
 ids <- unique(porc.locs$id)
-third.tables <- list()
+use.tables <- list()
 
 for (i in ids){
   tables.i <- list()
       for (j in 1:length(final.list[[i]])){
           ud.i <- final.list[[i]][[j]]
           table.i <- aggregate(ud ~ veg, data = ud.i, FUN = sum) #if error, make sure there's no object 'sum' (rm(sum))
-          table.i$ud[table.i$ud == 0] <- 1e-10 #do this here or before "aggregate"?
+          table.i$ud[table.i$ud == 0] <- 1e-10 # there shouldn't be 0 values here... maybe in winter?
+          table.i <- merge(veg.dummy, table.i, by ='veg', all.x = TRUE) ## so they ALL have each veg type
+          table.i <- table.i[,c(1,3)]
+          colnames(table.i) <- c('veg', 'ud')
+          table.i[is.na(table.i)] <- 1e-10 ## what number to replace with? recommended 0.03 seems too large
           table.i$ud_weight <- table.i$ud / sum(table.i$ud)
           table.i$log_ud_weight <- log(table.i$ud_weight)
           tables.i[[j]] <- table.i
       }
-  third.tables[[i]] <- tables.i
+  use.tables[[i]] <- tables.i
 }
 
-######### SECOND ORDER
+#### FOR 2nd order:
+## Use above, but also need to sum / avg the log_ud_weights across veg types
+
+## summing the UD weights (UD height / total in home range), then dividing by the number of animals
+## with that veg type, gives the result I want. Can't just add raw UD values and divide by total 
+## because they're relative to each animal's UD. Both of these are slightly different from just taking
+## the mean of UD weights per veg type. Which is more correct?
+
 ids <- unique(porc.locs$id)
-second.tables <- list()
-
+ud_table <- NULL
 for (i in ids){
-  tables.i <- list()
-      for (j in 1:length(second.final.list[[i]])){
-          ud.i <- second.final.list[[i]][[j]]
-          table.i <- aggregate(ud ~ veg, data = ud.i, FUN = sum) #if error, make sure there's no object 'sum' (rm(sum))
-          table.i$ud[table.i$ud == 0] <- 1e-10 #do this here or before "aggregate"?
-          table.i$ud_weight <- table.i$ud / sum(table.i$ud)
-          table.i$log_ud_weight <- log(table.i$ud_weight)
-          tables.i[[j]] <- table.i
-  }
-  second.tables[[i]] <- tables.i
+  ud_i <- NULL
+    for (j in 1:length(use.tables[[i]])){
+      ud_ij <- use.tables[[i]][[j]][,c(1, 3)]
+      ud_ij$id <- rep(i, nrow(ud_ij))
+      ud_ij$season <- rep(j, nrow(ud_ij))  
+      ud_ij <- ud_ij[,c(3, 4, 1, 2)] #reorder
+      ud_i <- rbind(ud_i, ud_ij)
+    }
+  ud_table <- rbind(ud_table, ud_i)
 }
+
+## now sum ud_heights by veg type (first separate by season)
+ud_sums <- list()
+for (j in 1:3){
+    ud_season <- ud_table[ud_table$season == j,]
+    n <- nlevels(as.factor(ud_season$id)) ## how many animals during this season?
+    veg_season <- aggregate(ud_weight ~ veg, data = ud_season, FUN = sum) ## sum of all the UD weights per veg type
+    veg_season$used_prop <- veg_season$ud_weight / n ## divide total UD per veg type by total # animals
+    veg_season$log_used_prop <- log(veg_season$used_prop)
+    ud_sums[[j]] <- veg_season
+}
+
+ud_sums[[3]] ## now have 3 levels for the different seasons
 
 ######################
 ## 6. Now, calcluate "log-transformed availability data"
@@ -405,16 +395,17 @@ head(total.veg.areas)
 
 ## combine used and avail in the same table
 
-######## THIRD ORDER SELECTION: 'third.tables' (list of used data) & 'veg.tables' (list of avail. data)
+######## THIRD ORDER SELECTION: 'use.tables' (list of used data) & 'veg.tables' (list of avail. data)
 ids <- unique(porc.locs$id)
-final.tables <- NULL
+sel.tables.3 <- NULL
 
 for (i in ids){
   final.table.i <- NULL
-    for (j in 1:length(third.tables[[i]])){
-      tables.j <- third.tables[[i]][[j]] ## proportional use based on season-specific UD
+    for (j in 1:length(use.tables[[i]])){
+      tables.j <- use.tables[[i]][[j]] ## proportional use based on season-specific UD
       veg.tables.j <- veg.tables[[i]] ## proportional avail. within OUTER contour
-      tables.j$log_avail <- veg.tables.j$log_avail
+      tables.j <- merge(tables.j, veg.tables.j, by ='veg', all.x = TRUE)
+      #tables.j[is.na(tables.j)] <- 1e-10 ## availability really IS 0... will this mess it up?      
       tables.j$id <- rep(i, nrow(tables.j))
       tables.j$sel <- tables.j$log_ud_weight - tables.j$log_avail ## 'sel' = log-ratio differences
       tables.j$season <- rep(j, nrow(tables.j))
@@ -423,46 +414,35 @@ for (i in ids){
       colnames(final.df.j) <- c('id', 'season', 'veg', 'log_ud_wt', 'log_avail', 'sel')
       final.table.i <- bind_rows(final.table.i, final.df.j)
     }
-  final.tables <- bind_rows(final.tables, final.table.i)
+  sel.tables.3 <- bind_rows(sel.tables.3, final.table.i)
 }
 ## the 'unequal factor levels' error is OK
 
-overall.sel <- final.tables[final.tables$season == 1,]
-summer.sel <- final.tables[final.tables$season == 2,]
-winter.sel <- final.tables[final.tables$season == 3,]
+overall.sel <- sel.tables.3[sel.tables.3$season == 1,]
+summer.sel <- sel.tables.3[sel.tables.3$season == 2,]
+winter.sel <- sel.tables.3[sel.tables.3$season == 3,]
 
-write.csv(overall.sel, 'csvs/overall_wt_comp_analysis_072616.csv')
-write.csv(summer.sel, 'csvs/summer_wt_comp_analysis_072616.csv')
-write.csv(winter.sel, 'csvs/winter_wt_comp_analysis_072616.csv')
+write.csv(overall.sel, 'csvs/overall_wt_comp_analysis_080616.csv')
+write.csv(summer.sel, 'csvs/summer_wt_comp_analysis_080616.csv')
+write.csv(winter.sel, 'csvs/winter_wt_comp_analysis_080616.csv')
 
+#######SECOND ORDER SELECTION: 'ud_sums' (use data) & 'total.veg.areas' (avail. data)
+## need: season, veg, log_ud_wt, log_avail, sel
 
-######## SECOND ORDER SELECTION: 'second.tables' (list of used data) & 'total.veg.areas' (avail. data)
-ids <- unique(porc.locs$id)
-final.tables.second <- NULL
+ud_sums
+total.veg.areas
+sel.tables.2 <- ud_sums
 
-for (i in ids){
-        final.table.i <- NULL
-      for (j in 1:length(second.tables[[i]])){
-        table.j <- total.veg.areas[,c(1, 4)] ## start with all veg type avail. and add use below
-        second.tables.i <- second.tables[[i]][[j]] ## proportional use based on season-specific UD
-        table.j$log_ud_wt <- second.tables.i[match(table.j$veg, second.tables.i$veg), 'log_ud_weight']
-        table.j[is.na(table.j)] <- 0
-        table.j$id <- rep(i, nrow(table.j))
-        table.j$sel <- table.j$log_ud_wt - table.j$log_avail ## log-ratio differences
-        table.j$season <- rep(j, nrow(table.j))
-        table.j <- table.j[,c('id', 'season', 'veg', 'log_ud_wt', 'log_avail', 'sel')]
-        final.table.i <- bind_rows(final.table.i, table.j)
-  }
-    final.tables.second <- bind_rows(final.tables.second, final.table.i)
+for (j in 1:3){
+    sel.tables.2[[j]]$log_avail <- total.veg.areas[match(total.veg.areas$veg, sel.tables.2[[j]]$veg), 'log_avail']
+    sel.tables.2[[j]]$sel <- sel.tables.2[[j]]$log_used_prop - sel.tables.2[[j]]$log_avail
+    colnames(sel.tables.2[[j]]) <- c('veg', 'sum_ud_weight', 'used_prop', 'log_ud_wt', 'log_avail', 'sel')
+    sel.tables.2[[j]] <- sel.tables.2[[j]][,c('veg', 'log_ud_wt', 'log_avail', 'sel')]
 }
 
-overall.sel.2 <- final.tables.second[final.tables.second$season == 1,]
-summer.sel.2 <- final.tables.second[final.tables.second$season == 2,]
-winter.sel.2 <- final.tables.second[final.tables.second$season == 3,]
-
-write.csv(overall.sel.2, 'csvs/overall_wca_second_080516.csv')
-write.csv(summer.sel.2, 'csvs/summer_wca_second_080516.csv')
-write.csv(winter.sel.2, 'csvs/winter_wca_second_080516.csv')
+write.csv(sel.tables.2[[1]], 'csvs/overall_wt_comp_analysis_2nd_080816.csv')
+write.csv(sel.tables.2[[2]], 'csvs/summer_wt_comp_analysis_2nd_080816.csv')
+write.csv(sel.tables.2[[3]], 'csvs/winter_wt_comp_analysis_2nd_080816.csv')
 
 ######################
 ## 7. Compute Wilk's lambda to test for overall selection
@@ -474,6 +454,8 @@ write.csv(winter.sel.2, 'csvs/winter_wca_second_080516.csv')
 groups <- as.factor(summer.sel$veg)
 x <- as.matrix(summer.sel[,4:5])
 
+manova.3 <- manova(log_ud_wt ~ log_avail * veg, summer.sel, data = summer.sel)
+
 ## can do method "c" for mean and variance or "rank" for wilks lambda ranks
 ## am I doing this right? should I just do MANOVA on the ranking table (below)?
 wilks.summer <- Wilks.test(x, grouping = groups, method="rank")
@@ -482,10 +464,16 @@ wilks.summer
 ############## 
 ### SECOND ORDER
 
-groups <- as.factor(winter.sel.2$veg)
-x <- as.matrix(winter.sel.2[,4:5])
-wilks.winter.2 <- Wilks.test(x, grouping = groups, method = 'rank')
+##### REVISIT THIS
+
+groups <- as.factor(sel.tables.2[[1]]$veg)
+y <- as.matrix(sel.tables.2[[1]][,2:3])
+#y <- apply(as.matrix.noquote(sel.tables.2[,2:3]),2,as.numeric) # try if above doesn't work
+wilks.winter.2 <- Wilks.test(y, grouping = groups, method = 'c') #if it says 'x must be matrix or data frame', try it again...
 wilks.winter.2
+
+manova.2 <- manova(log_ud_wt ~ log_avail * veg, summer.sel, data = sel.tables.2[[1]]) #error
+summary(manova.2)
 
 ######################
 ## 8. If use differs significantly from availability (p-value for Wilks lambda):
@@ -500,40 +488,40 @@ wilks.winter.2
 ## ** what to do with NA values? **
 
 ## make matrices for each season
-season_matrices <- list()
+sel_matrices_3 <- list()
 for (i in 1:3){
-      sel_i <- data.frame(final.tables$id[final.tables$season == i], final.tables$veg[final.tables$season == i], final.tables$sel[final.tables$season == i])
+      sel_i <- data.frame(sel.tables.3$id[sel.tables.3$season == i], sel.tables.3$veg[sel.tables.3$season == i], sel.tables.3$sel[sel.tables.3$season == i])
       colnames(sel_i) <- c('id', 'veg', 'sel')
       matrix_i <- reshape(data = sel_i, direction = 'wide', v.names = 'sel', idvar = 'id', timevar = 'veg', sep = '_')
       names(matrix_i) <- gsub('sel_', '', names(matrix_i)) ## get rid of 'sel' in column names
-      season_matrices[[i]] <- matrix_i
+      sel_matrices_3[[i]] <- matrix_i
 }
 
 ## calculate differences in log ratio in relation to reference category
 ref <- 5    # this is the column for 'conifer forest' (my reference category); can change it here
-d_matrices <- list()
-d_means <- list()
+d_matrices_3 <- list()
+d_means_3 <- list()
 
 for (i in 1:3){
-      season <- season_matrices[[i]]
+      season <- sel_matrices_3[[i]]
       d_ref <- season[,2:10] - season[,ref] ## subtract the column of the reference category
       d_ref_df <- data.frame(season$id, d_ref)
       names(d_ref_df) <- gsub('[.]', ' ', names(d_ref_df))
-      d_matrices[[i]] <- d_ref_df ##store (will use for t-tests)
+      d_matrices_3[[i]] <- d_ref_df ##store (will use for t-tests)
       d_means_i <- colMeans(d_ref_df[,2:10], na.rm = TRUE) ## is it OK to ignore NAs?
       d_means_df <- stack(d_means_i)
       colnames(d_means_df) <- c('d', 'veg')   
       d_means_df$rank <- rank(-d_means_df$d) ## negative sign so it ranks largest -> smallest
-      d_means[[i]] <- d_means_df ##store
+      d_means_3[[i]] <- d_means_df ##store
 }
 
-d_means ## here are the ranks!
+d_means_3 ## here are the ranks!
 ## summer most closely resembles 'all'
 
-## now do t-tests using the log-differences in each veg column in d_matrices
-pairwise_ttests <- list()
+## now do t-tests using the log-differences in each veg column in d_matrices_3
+pairwise_ttests_3 <- list()
 for (i in 1:3){
-      season <- d_matrices[[i]][,-5] ## remove reference category
+      season <- d_matrices_3[[i]][,-5] ## remove reference category
     # first test between each category and the reference  
       pairwise_j <- NULL
     for (j in 2:9){
@@ -557,25 +545,104 @@ for (i in 1:3){
     pairwise_j$veg1 <- veg_key[match(pairwise_j$v1, veg_key$veg_id), 'veg'] 
     pairwise_j$veg2 <- veg_key[match(pairwise_j$v2, veg_key$veg_id), 'veg']
     }      
-  pairwise_ttests[[i]] <- pairwise_j
+  pairwise_ttests_3[[i]] <- pairwise_j
 }
 
 ## output as .csvs to make tables fo ms/appendix
-write.csv(pairwise_ttests[[2]], 'csvs/pairwise_ttests_summer.csv')
-write.csv(pairwise_ttests[[3]], 'csvs/pairwise_ttests_winter.csv')
+write.csv(pairwise_ttests_3[[2]], 'csvs/pairwise_ttests_3_summer.csv')
+write.csv(pairwise_ttests_3[[3]], 'csvs/pairwise_ttests_3_winter.csv')
 
 ## pull out the significant pairs now for interpretation
-pairwise_overall <- pairwise_ttests[[1]]
+pairwise_overall <- pairwise_ttests_3[[1]]
 sig_overall <- pairwise_overall[pairwise_overall$p <= 0.05,]
 sig_overall <- sig_overall[!is.na(sig_overall$veg1),]
 
-pairwise_summer <- pairwise_ttests[[2]]
+pairwise_summer <- pairwise_ttests_3[[2]]
 sig_summer <- pairwise_summer[pairwise_summer$p <= 0.05,]
 sig_summer <- sig_summer[!is.na(sig_summer$veg1),]
 
-pairwise_winter <- pairwise_ttests[[3]]
+pairwise_winter <- pairwise_ttests_3[[3]]
 sig_winter <- pairwise_winter[pairwise_winter$p <= 0.05,]
 sig_winter <- sig_winter[!is.na(sig_winter$veg1),]
+
+###################################################
+##### SECOND ORDER:
+
+## don't need matrices
+## calculate differences in log ratio in relation to reference category
+
+sel.tables.2
+
+## make df of selection ratios for reference category (for each season)
+ref.d <- NULL
+for (i in 1:3){
+    d <- d_matrices_2$sel[d_matrices_2$season == i & d_matrices_2$veg == 'conifer forest']
+    d.i <- data.frame(i, rep(d, 9))
+    colnames(d.i) <- c('season', 'd')
+    ref.d <- rbind(ref.d, d.i)
+}
+
+## set up matrix
+d_matrices_2 <- data.frame(sel.tables.2$season, sel.tables.2$veg, sel.tables.2$sel)
+colnames(d_matrices_2) <- c('season', 'veg', 'sel')
+d_matrices_2$d_ref <- d_matrices_2$sel - ref.d$d
+
+      d_matrices_2[[i]] <- d_ref_df ##store (will use for t-tests)
+      d_means_i <- colMeans(d_ref_df[,2:10], na.rm = TRUE) ## is it OK to ignore NAs?
+      d_means_df <- stack(d_means_i)
+      colnames(d_means_df) <- c('d', 'veg')   
+      d_means_df$rank <- rank(-d_means_df$d) ## negative sign so it ranks largest -> smallest
+      d_means_2[[i]] <- d_means_df ##store
+    }
+
+d_means_2 ## here are the ranks
+
+## now do t-tests using the log-differences in each veg column in d_matrices
+pairwise_ttests_2 <- list()
+for (i in 1:3){
+    season <- d_matrices_2[[i]][,-5] ## remove reference category
+    # first test between each category and the reference  
+    pairwise_j <- NULL
+      for (j in 2:9){
+          ttest_j <- t.test(season[,j], mu = 0) ## 1-sample t-test against reference category
+          ttest_j_df <- data.frame(j, 0, ttest_j$estimate, ttest_j$conf.int[1], ttest_j$conf.int[2], ttest_j$p.value) ## 0 stands for reference category ('veg type 0')
+          colnames(ttest_j_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')  
+          pairwise_j <- bind_rows(pairwise_j, ttest_j_df) ## store
+    # then test pairwise between all categories 
+    pairwise_k  <- NULL
+      for (k in 2:9){
+          ttest_k <- t.test(season[,j], season[,k], paired = TRUE)
+          ttest_k_df <- data.frame(j, k, ttest_k$estimate, ttest_k$conf.int[1], ttest_k$conf.int[2], ttest_k$p.value)
+          colnames(ttest_k_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')
+          pairwise_k <- bind_rows(pairwise_k, ttest_k_df) ## store
+      }
+      pairwise_j <- bind_rows(pairwise_j, pairwise_k)
+      veg_key <- data.frame((names(season)[2:9]), 2:9)
+      colnames(veg_key) <- c('veg', 'veg_id')
+      ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category label
+      veg_key <- rbind(veg_key, ref_key)
+      pairwise_j$veg1 <- veg_key[match(pairwise_j$v1, veg_key$veg_id), 'veg'] 
+      pairwise_j$veg2 <- veg_key[match(pairwise_j$v2, veg_key$veg_id), 'veg']
+    }      
+    pairwise_ttests_2[[i]] <- pairwise_j
+}
+
+## output as .csvs to make tables fo ms/appendix
+write.csv(pairwise_ttests_2[[2]], 'csvs/pairwise_ttests_2nd_summer.csv')
+write.csv(pairwise_ttests_2[[3]], 'csvs/pairwise_ttests_2nd_winter.csv')
+
+## pull out the significant pairs now for interpretation
+pairwise_overall_2 <- pairwise_ttests_2[[1]]
+sig_overall_2 <- pairwise_overall_2[pairwise_overall_2$p <= 0.05,]
+sig_overall_2 <- sig_overall_2[!is.na(sig_overall_2$veg1),]
+
+pairwise_summer_2 <- pairwise_ttests_2[[2]]
+sig_summer_2 <- pairwise_summer_2[pairwise_summer_2$p <= 0.05,]
+sig_summer_2 <- sig_summer_2[!is.na(sig_summer_2$veg1),]
+
+pairwise_winter_2 <- pairwise_ttests_2[[3]]
+sig_winter_2 <- pairwise_winter_2[pairwise_winter_2$p <= 0.05,]
+sig_winter_2 <- sig_winter_2[!is.na(sig_winter_2$veg1),]
 
 ##########################################################################
 ## Boxplots:
@@ -588,15 +655,15 @@ veg_colors <- c("khaki1", "khaki3", "khaki4", "darkolivegreen4", "coral1", "aqua
 colors <- data.frame(veg_class, veg_colors)
 colors$veg_colors <- as.character(colors$veg_colors)
 
-summer_melt <- melt(d_matrices[[2]])
+summer_melt <- melt(d_matrices_3[[2]]) ## error OK
 colnames(summer_melt) <- c('id', 'veg', 'd')
 summer_melt$season <- rep('sum', nrow(summer_melt))
-summer_melt$rank <- d_means[[2]][match(summer_melt$veg, d_means[[2]]$veg), 3] ## where 3 is the 'rank' column in d_means[[2]]
+summer_melt$rank <- d_means_3[[2]][match(summer_melt$veg, d_means_3[[2]]$veg), 3] ## where 3 is the 'rank' column in d_means_3[[2]]
 
-winter_melt <- melt(d_matrices[[3]])
+winter_melt <- melt(d_matrices_3[[3]])
 colnames(winter_melt) <- c('id', 'veg', 'd')
 winter_melt$season <- rep('win', nrow(winter_melt))
-winter_melt$rank <- d_means[[3]][match(winter_melt$veg, d_means[[3]]$veg), 3]
+winter_melt$rank <- d_means_3[[3]][match(winter_melt$veg, d_means_3[[3]]$veg), 3]
 
 ## This plot is similar to Figure 5 in Millspaugh et al. 2006
 ## - do I want horizontal or vertical? add '+ coord_flip()' 
@@ -633,17 +700,64 @@ w <- ggplot(data = winter_melt, aes(x = reorder(veg, rank), y = d, fill = as.fac
 w #winter (warning message is OK; it's because of the NAs)
 
 ##########################################################################
+#### SECOND ORDER
+
+## reshape/melt matrices and assign colors to veg classes for plotting:
+summer_melt_2 <- melt(d_matrices_2[[2]])
+colnames(summer_melt_2) <- c('id', 'veg', 'd')
+summer_melt_2$season <- rep('sum', nrow(summer_melt_2))
+summer_melt_2$rank <- d_means_2[[2]][match(summer_melt_2$veg, d_means_2[[2]]$veg), 3] ## where 3 is the 'rank' column in d_means[[2]]
+
+winter_melt_2 <- melt(d_matrices_2[[3]])
+colnames(winter_melt_2) <- c('id', 'veg', 'd')
+winter_melt_2$season <- rep('win', nrow(winter_melt_2))
+winter_melt_2$rank <- d_means_2[[3]][match(winter_melt_2$veg, d_means_2[[3]]$veg), 3]
+
+## This plot is similar to Figure 5 in Millspaugh et al. 2006
+## - do I want horizontal or vertical? add '+ coord_flip()' 
+## - 'guide = FALSE' in scale_fill_manual turns off the legend (since I have axis labels)
+s2 <- ggplot(data = summer_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        geom_boxplot() + geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-10, 15) + ## use 'min(summer_melt_2$d)' e.g.
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+    theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+          axis.text.y = element_text(size = 12, colour = 'black'),
+          axis.title = element_text(size = 12, colour = 'black'),
+          axis.line.x = element_line(size = 0.5, colour = 'black'),
+          axis.line.y = element_line(size = 0.5, colour = 'black'),
+          panel.background = element_rect(fill = 'white')) +
+    geom_text(label ='*', aes(x = 1, y = -10), size = 8, colour = 'grey50') +
+    geom_text(label ='*', aes(x = 2, y = -10), size = 8, colour = 'grey50') +
+    geom_text(label ='*', aes(x = 5, y = -10), size = 8, colour = 'grey50')
+s2 #summer (warning message is OK; it's because of the NAs)
+
+w2 <- ggplot(data = winter_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        geom_boxplot() + geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-17.0, 15.0) +
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+    theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+          axis.text.y = element_text(size = 12, colour = 'black'),
+          axis.title = element_text(size = 12, colour = 'black'),
+          axis.line.x = element_line(size = 0.5, colour = 'black'),
+          axis.line.y = element_line(size = 0.5, colour = 'black'),
+          panel.background = element_rect(fill = 'white')) +
+    geom_text(label ='*', aes(x = 1, y = -17), size = 8, colour = 'grey50')
+w2 #winter (warning message is OK; it's because of the NAs)
+
+##########################################################################
 ## Simple / old ranking method. (Is this wrong? It sounds like what Marzluff et al. 2006 are describing, 
 ## instead of the ranking process in Erickson et al. 2001, above.)
 
 ## calculate mean and sd of "sel" for each habitat type, across individuals
-veg_types <- unique(final.tables$veg)
+veg_types <- unique(sel.tables.3$veg)
 means_tables <- list()
 
 for (i in 1:3){
   means_table_i <- NULL
     for (j in veg_types) {
-      season <- final.tables[final.tables$season == i,]
+      season <- sel.tables.3[sel.tables.3$season == i,]
       veg.j <- season[season$veg == j,]
       mean.sel.j <- mean(veg.j$sel)
       sd.sel.j <- sd(veg.j$sel)
@@ -687,13 +801,13 @@ p
 
 ############ SECOND ORDER (OLD METHOD)
 ## calculate mean and sd of "sel" for each habitat type, across individuals
-veg_types <- unique(final.tables.second$veg)
+veg_types <- unique(sel.tables.2$veg)
 means_tables_second <- list()
 
 for (i in 1:3){
     means_table_i <- NULL
   for (j in veg_types) {
-      season <- final.tables.second[final.tables.second$season == i,]
+      season <- sel.tables.2[sel.tables.2$season == i,]
       veg.j <- season[season$veg == j,]
       mean.sel.j <- mean(veg.j$sel)
       sd.sel.j <- sd(veg.j$sel)
@@ -744,7 +858,7 @@ axis(1)
 title(xlab = "Differences in log ratio", line=3)
 abline(v=0, lty = 1, col="red")
 
-## **THIS IS THE OLD WAY... SEE BELOW
+## **THIS IS THE OLD WAY... SEE ABOVE
 
 sel_means_summer <- aggregate(sel ~ veg, data = summer.sel, FUN = mean)
 sel_means_summer$season <- rep('2', nrow(sel_means_summer))
@@ -757,7 +871,7 @@ colnames(sel_means_winter) <- c('veg', 'sel_means', 'season')
 sel_means <- rbind(sel_means_summer, sel_means_winter)
 sel_means$season <- as.factor(sel_means$season)
 
-x <- ggplot(final.tables[final.tables$season != '1',], aes(x = veg, y = sel, color = as.factor(season))) +
+x <- ggplot(sel.tables.3[sel.tables.3$season != '1',], aes(x = veg, y = sel, color = as.factor(season))) +
   geom_boxplot(position = position_dodge(0.8)) + geom_point(position = position_dodge(0.8), size = 3)  + 
   scale_colour_manual(values = c('black', 'darkgray')) + coord_flip() + geom_hline(yintercept = 0) + 
   xlab('Vegetation type') + ylab('Difference in selection ratio') +
