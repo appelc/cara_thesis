@@ -1,4 +1,5 @@
 library(adehabitatHR)
+library(adehabitatHS)
 library(googlesheets)
 library(raster)
 library(rgdal)
@@ -9,6 +10,7 @@ library(ggplot2)
 library(maptools)
 library(dplyr)
 library(sp)
+library(reshape)
 
 ######################
 ## 1. First, load porcupine location data & veg data
@@ -82,7 +84,7 @@ kud.all <- list()
 kern.i <- list()
 outer_cont99 <- list()
 contours99 <- list()
-ud.third <- list()
+ud.list <- list()
 
 for (i in ids){
         locs.i <- porc.locs[porc.locs$id == i,]
@@ -136,17 +138,17 @@ for (i in ids){
         outer_cont99.i <- SpatialPolygonsDataFrame(outer_cont99.i, data = row_data)
         
         ## store contours (access as follows: contours[[i]][[j]] where i = ID and j = 1:all, 2:sum, 3:win)
-        outer_cont99[[i]] <- outer_cont99.i ## store
-        contours99[[i]] <- cont99
+        outer_cont99[[i]] <- outer_cont99.i ## store outer contours
+        contours99[[i]] <- cont99 ## all contours
         
         # clip summer & winter UD grids to the 99% outer contour and veg extent for 3rd order analysis
-        third.ud.i <- list()
+        ud.i <- list()
         for (j in 1:length(kern.i)){
           clipped.ud.i <- (kern.i[[j]])[outer_cont99.i,] ## outer boundary from ALL contours, see above
           clipped.ud.i <- clipped.ud.i[veg.ext,]
-          third.ud.i[[j]] <- clipped.ud.i
+          ud.i[[j]] <- clipped.ud.i
         }
-        ud.third[[i]] <- third.ud.i
+        ud.list[[i]] <- ud.i
 } 
 
 ######################
@@ -158,8 +160,8 @@ heights.2 <- NULL
 
 for (i in ids){
   heights.i <- NULL
-  for(j in 1:length(ud.third[[i]])){
-    ud.i <- ud.third[[i]][[j]]
+  for(j in 1:length(ud.list[[i]])){
+    ud.i <- ud.list[[i]][[j]]
     ud.height.i <- ud.i$ud
     coords.i <- ud.i@coords
     ht.coords.i <- data.frame((rep(i, length(ud.height.i))), rep(j, length(ud.height.i)), ud.height.i, coords.i)  
@@ -168,31 +170,26 @@ for (i in ids){
   }
   heights.2 <- rbind(heights.2, heights.i)
 }
- 
 
 ######################
 ## 4. Assign values of covariates
 ######################
 
-ids <- unique(porc.locs$id)
-
-spdf.2 <- SpatialPointsDataFrame(data.frame(heights.2$x, heights.2$y),
+spdf <- SpatialPointsDataFrame(data.frame(heights.2$x, heights.2$y),
                                  data=data.frame(heights.2$id, heights.2$season, heights.2$height),
                                  proj4string = CRS(proj4string(veg)))
-spdf.2@data$veg <- over(spdf.2, veg)$Class_4
-df.2 <- data.frame(spdf.2@data, spdf.2@coords)
-colnames(df.2) <- c("id", "season", "ud", "veg", "x", "y")
-df.2 <- df.2[!is.na(df.2$veg),] ## there were none anyway
-
+spdf@data$veg <- over(spdf, veg)$Class_4
+veg_over <- data.frame(spdf@data, spdf@coords)
+colnames(veg_over) <- c("id", "season", "ud", "veg", "x", "y")
+veg_over <- veg_over[!is.na(veg_over$veg),] ## there were none anyway
 
 ######################
-## 5. Create matrix of use values
+## 5. Create matrix of use values (proportion of UD height per veg type / total UD height in home range)
 ######################
 
 use_data <- list()
-
 for (j in 1:3){
-    uds <- df.2[df.2$season == j,]
+    uds <- veg_over[veg_over$season == j,]
     uds <- uds[,c(1, 3:4)]
     ids <- unique(uds$id)
     uds.season <- NULL
@@ -206,13 +203,20 @@ for (j in 1:3){
       }
     use <- cast(uds.season, id ~ veg, value = 'prop_used')
     use_data[[j]] <- data.frame(use[,-1], row.names = use[,1])
-    colnames(use_data[[j]]) <- gsub('[.]', ' ', colnames(use_data[[j]])) 
-    use_data[[j]][is.na(use_data[[j]])] <- 0
+    colnames(use_data[[j]]) <- gsub('[.]', ' ', colnames(use_data[[j]])) ## add veg types as colnames
+    #use_data[[j]][use_data[[j]] == 0] <- NA ## for 2nd-order compana only? see below. 0s are also problematic.
+    use_data[[j]][is.na(use_data[[j]])] <- 0 ## what to change NAs to? *see below
 }
 
-## compana might not like 'NA' as opposed to 0.000001 or something
-## OK to have different animals in each season?
-
+## * If using 'use_data' for function 'compana,' keep NAs as NA (or 0?); 'compana' will replace them automatically
+## * But if doing manually: 
+##      - If availability != 0 but use = 0, this is meaningful (in the case of all 2nd order, and some winter 3rd order). 
+##        However, 0 will become -Inf in the log-ratio, so we need to replace it with a small nonzero number.
+##        (I'll use 1e-10)
+##        Aebischer: it should be smaller than the smallest non-zero number. (can remove 0 and use min())
+##      - If availability = 0 and use = 0 (common in 3rd order): leave it as NA (or 0?) here.
+##        We will later replace missing log-ratio values with the mean of remaing log-ratios per veg type.
+    
 ######################
 ## 5. Create matrix of availability data
 ##    a. For the entire study area (2nd order)
@@ -224,32 +228,235 @@ colnames(veg.df) <- c('veg', 'area')
 
 veg_sum <- aggregate(area ~ veg, data = veg.df, FUN = sum) ## sum areas by veg type
 veg_prop <- veg_sum$area / sum(veg_sum$area)
-veg_prop <- t(veg_prop)
-colnames(veg_prop) <- veg_sum$veg 
+veg_prop <- t(veg_prop) ## transpose
 
-## make list of matrices to match with avail
-avail_list_2 <- list()
+## make list of matrices to match with use data (one per season); availability is the same but this helps
+avail_2 <- list()
 for (j in 1:3){
     avail_data_2 <- matrix(rep(veg_prop, nrow(use_data[[j]])), nrow = nrow(use_data[[j]]), byrow = TRUE)
-    colnames(avail_data_2) <- colnames(veg_prop)
-    avail_list_2[[j]] <- avail_data_2
+    colnames(avail_data_2) <- veg_sum$veg
+    rownames(avail_data_2) <- rownames(use_data[[j]])
+    avail_2[[j]] <- avail_data_2
 }
 
 ######################
-## 6. Try compositional analysis ('compana' in package adehabitatHS)
+##    b. For each animal's home range (3rd order)
 ######################
 
-## overall
-compana(use_data[[1]], avail_list_2[[1]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+## 'home ranges' are the 99% outer contours (countours99[[]])
+ids <- unique(porc.locs$id)
+veg_home_ranges <- list()
+avail_list_3 <- NULL
 
-## summer
-compana(use_data[[2]], avail_list_2[[2]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+for (i in ids){
+      cont99.i <- outer_cont99[[i]]
+      clip.i <- gIntersection(cont99.i, veg, byid = T) #this is just a SpatialPolygons (no data)
+      row.names(clip.i) <- gsub("homerange ", "", row.names(clip.i))    
+      keep <- row.names(clip.i)
+      clip.i <- spChFIDs(clip.i, keep) #changes feature IDs in the SP
+      clip.data <- as.data.frame(veg@data[keep,]) #this is what we'll add as @data to the SPDF
+      clip.spdf <- SpatialPolygonsDataFrame(clip.i, clip.data)  #this is fixed!
+      clip.spdf <- clip.spdf[!is.na(clip.spdf@data$Class_4),] #get rid of NAs
+      veg_home_ranges[[i]] <- clip.spdf ## store veg SPDF clipped to home ranges
+      area.all <- gArea(clip.spdf, byid = TRUE) #units should be m^2
+      veg.df.i <- data.frame(clip.spdf$Class_4, area.all)
+      colnames(veg.df.i) <- c("veg", "area")
+      veg_sum_i <- aggregate(area ~ veg, data = veg.df.i, FUN = sum) ## sum areas by veg type
+      veg_prop_i <- veg_sum_i$area / sum(veg_sum_i$area)
+      veg_prop_i <- (t(veg_prop_i))
+      colnames(veg_prop_i) <- veg_sum_i$veg
+      veg_prop_i <- data.frame(i, veg_prop_i)
+      avail_list_3 <- bind_rows(avail_list_3, veg_prop_i) ## coercing to character error OK
+}
 
-## winter
-compana(use_data[[3]], avail_list_2[[3]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+## create a list with levels for each season (each animal's availability is the same each season, 
+## but the matrices will have different # animals)
+avail_3 <- list()
+for (j in 1:3){
+      avail_3[[j]] <- data.frame(avail_list_3[,-1], row.names = avail_list_3$i)
+      colnames(avail_3[[j]]) <- gsub('[.]', ' ', colnames(avail_3[[j]])) ## add veg types as colnames
+      avail_3[[j]][is.na(avail_3[[j]])] <- 0 ## change NAs in avail to 0 for compana (is this right?)
+}
+
+## restrict IDs to those in each season; 1 & 2 have all but 3 (winter) is missing some. Better way to do this?
+avail_3[[3]] <- avail_3[[3]][-c(4:6, 8:10),]
+
+######################
+## 6. Try compositional analysis ('compana' in package adehabitatHS)
+##    a. 2nd order
+######################
+
+compana_all_2 <- compana(use_data[[1]], avail_2[[1]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+compana_sum_2 <- compana(use_data[[2]], avail_2[[2]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+compana_win_2 <- compana(use_data[[3]], avail_2[[3]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
 
 ## eigen visual analysis
-(eis <- eisera(use_data[[2]], avail_list_2[[2]], scannf = FALSE))
+(eis <- eisera(use_data[[2]], avail_2[[2]], scannf = FALSE))
+barplot(eis$eig) ## what does this tell us?
+scatter(eis)
+
+######################
+##    b. 3rd order
+######################
+
+## check NA/0 values in use/avail data above before running
+
+compana_all_3 <- compana(use_data[[1]], avail_list_3[[1]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+compana_sum_3 <- compana(use_data[[2]], avail_list_3[[2]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+compana_win_3 <- compana(use_data[[3]], avail_list_3[[3]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
+
+## eigen visual analysis
+(eis <- eisera(use_data[[3]], avail_list_3[[3]], scannf = FALSE))
 barplot(eis$eig)
 scatter(eis)
 
+######################
+## 7. Do compositional analysis by hand (ala Erickson et al. 2001 matrices)
+##    a. 2nd order
+######################
+
+## I) First, test for overall selection (Wilk's lambda / MANOVA) -- haven't been able to get manova to work
+## ** go back and check NA/0 in creation of 'use_data' list
+
+use_avail_2 <- list() ## combine use and availability data
+for (j in 1:3){
+      use.j <- data.frame(use_data[[j]])
+      use.j$id <- rownames(use.j)
+      use <- reshape(use.j, varying = 1:9, direction = 'long', v.names = 'used_prop', timevar = 'veg',
+                     idvar = 'id', times = colnames(use.j[,1:9]))
+      avail.j <- data.frame(avail_2[[j]])
+      avail.j$id <- rownames(avail.j)
+      avail <- reshape(avail.j, varying = 1:9, direction = 'long', v.names = 'avail_prop', timevar = 'veg',
+                       idvar = 'id', times = colnames(avail.j[,1:9]))
+      use_avail <- use
+      use_avail$avail_prop <- avail$avail_prop
+      rownames(use_avail) <- NULL
+      use_avail_2[[j]] <- use_avail      
+}
+
+wilks_results <- list() ## store Wilk's lambda results by season
+for (j in 1:3){
+      use_avail_j <- use_avail_2[[j]]
+      groups <- as.factor(use_avail_j$veg)
+      x <- as.matrix(use_avail_j[,3:4])
+      wilks_j <- Wilks.test(x, grouping = groups, method = 'c') ## which method?
+      wilks_results[[j]] <- wilks_j
+}
+## lambda is 0 for overall and summer... that doesn't seem right
+
+## II) If selection differs significantly from random, compute the difference between log-transformed 
+## 'use_data' and log-transormed 'avail_2' (ala Marzluff et al. 2006)
+
+log_ratios_2 <- list()
+for (j in 1:3){
+      use_avail_2[[j]]$log_ratio <- log(use_avail_2[[j]]$used_prop) - log(use_avail_2[[j]]$avail_prop)
+      log_ratios_j <- use_avail_2[[j]][,c(1:2, 5)]
+      log_ratios_j <- reshape(log_ratios_j, timevar = 'veg', idvar = 'id', direction = 'wide')
+      names(log_ratios_j) <- gsub('log_ratio.', '', names(log_ratios_j)) ## get rid of 'sel' in column names
+      names(log_ratios_j) <- gsub('[.]', ' ', names(log_ratios_j))
+      rownames(log_ratios_j) <- log_ratios_j[,1]
+      log_ratios_j <- log_ratios_j[,-1]
+      log_ratios_2[[j]] <- log_ratios_j
+}
+
+## III) Create a matrix like Erickson et al. 2001 by subtracting the reference category log-ratio 
+## from each each habitat/individual log-ratio (Erickson et al. call this 'd')
+d_matrix_2 <- list()
+d_means_2 <- list()
+ref <- 4      ## column of 'conifer forest' (can change here for desired reference category)
+for (j in 1:3){
+      matrix_j <- log_ratios_2[[j]]
+      ref_matrix <- matrix(rep(matrix_j[,ref], ncol(matrix_j)), nrow = nrow(matrix_j), byrow = FALSE)
+      colnames(ref_matrix) <- colnames(matrix_j)
+      d_matrix_2[[j]] <- matrix_j - ref_matrix ## store for doing t-tests
+
+      d_means_j <- colMeans(d_matrix_2[[j]]) ## shouldn't be no NAs in 2nd order (no need fro rm.na = TRUE)
+      d_means_j <- stack(d_means_j)
+      colnames(d_means_j) <- c('d', 'veg')
+      d_means_j$rank <- rank(-d_means_j$d) ## negative sign so it ranks largest -> smallest
+      d_means_2[[j]] <- d_means_j ##store
+}
+
+## IV) T-tests
+
+#########################################
+
+#### THIRD ORDER
+## ** go up and re-run use_data, retaining NA/0 values instead of replacing them with 1e-10
+
+## I) First, test for overall selection (Wilk's lambda / MANOVA) -- haven't been able to get manova to work
+
+use_avail_3 <- list() ## combine use and availability data
+for (j in 1:3){
+    use.j <- data.frame(use_data[[j]])
+      use.j$id <- rownames(use.j)
+      use <- reshape(use.j, varying = 1:9, direction = 'long', v.names = 'used_prop', timevar = 'veg',
+                     idvar = 'id', times = colnames(use.j[,1:9]))
+    avail.j <- data.frame(avail_3[[j]])
+      avail.j$id <- rownames(avail.j) ## we have some 0s. leave for now and replace at log-ratio step
+      avail <- reshape(avail.j, varying = 1:9, direction = 'long', v.names = 'avail_prop', timevar = 'veg',
+                       idvar = 'id', times = colnames(avail.j[,1:9]))
+      
+    use_avail <- use
+      use_avail$avail_prop <- avail$avail_prop
+      rownames(use_avail) <- NULL
+      use_avail$used_prop[use_avail$avail_prop != 0 & use_avail$used_prop == 0] <- 1e-10 #it really IS no use, but 0 will throw off log-ratios
+      use_avail$used_prop[use_avail$avail_prop == 0 & use_avail$used_prop == 0] <- NA #will replace with mean down below
+     # use_avail$avail_prop[use_avail$avail_prop == 0] <- NA #redundant
+    use_avail_3[[j]] <- use_avail      
+}
+
+wilks_results <- list() ## store Wilk's lambda results by season
+for (j in 1:3){
+      use_avail_j <- use_avail_3[[j]]
+      groups <- as.factor(use_avail_j$veg)
+      x <- as.matrix(use_avail_j[,3:4])
+      wilks_j <- Wilks.test(x, grouping = groups, method = 'c') ## which method?
+      wilks_results[[j]] <- wilks_j
+}
+## good, all significantly different from random
+
+## II) If selection differs significantly from random, compute the difference between log-transformed 
+## 'use_data' and log-transormed 'avail_2' (ala Marzluff et al. 2006)
+
+log_ratios_3 <- list()
+for (j in 1:3){
+      use_avail_3[[j]]$log_ratio <- log(use_avail_3[[j]]$used_prop) - log(use_avail_3[[j]]$avail_prop)
+      log_ratios_j <- use_avail_3[[j]][,c(1:2, 5)]
+      log_ratios_j <- reshape(log_ratios_j, timevar = 'veg', idvar = 'id', direction = 'wide')
+      names(log_ratios_j) <- gsub('log_ratio.', '', names(log_ratios_j)) ## get rid of 'sel' in column names
+      names(log_ratios_j) <- gsub('[.]', ' ', names(log_ratios_j))
+      rownames(log_ratios_j) <- log_ratios_j[,1]
+      log_ratios_j <- log_ratios_j[,-1]
+    for (k in 1:ncol(log_ratios_j)){
+      ## replace missing values with the mean of log-ratios for each veg type (column) based on all nonzero values (ala Aebischer et al. 1993, Appendix 2)
+      log_ratios_j[is.na(log_ratios_j[,k]), k] <- mean(log_ratios_j[,k], na.rm = TRUE)
+  }
+  log_ratios_3[[j]] <- log_ratios_j
+}
+## The column means (mean log-ratio per veg type) are the same as they were with just non-zero values
+## But see caveats in Aebischer et al. 1993 (Appendix 2) re: independence and suggestion for computing mean lambda
+
+## III) Create a matrix like Erickson et al. 2001 by subtracting the reference category log-ratio 
+## from each each habitat/individual log-ratio (Erickson et al. call this 'd')
+d_matrix_3 <- list()
+d_means_3 <- list()
+ref <- 4      ## column of 'conifer forest' (can change here for desired reference category)
+for (j in 1:3){
+      matrix_j <- log_ratios_3[[j]]
+      ref_matrix <- matrix(rep(matrix_j[,ref], ncol(matrix_j)), nrow = nrow(matrix_j), byrow = FALSE)
+      colnames(ref_matrix) <- colnames(matrix_j)
+      d_matrix_3[[j]] <- matrix_j - ref_matrix ## store for doing t-tests
+      
+      d_means_j <- colMeans(d_matrix_3[[j]]) ## shouldn't be no NAs (no need fro rm.na = TRUE)
+      d_means_j <- stack(d_means_j)
+      colnames(d_means_j) <- c('d', 'veg')
+      d_means_j$rank <- rank(-d_means_j$d) ## negative sign so it ranks largest -> smallest
+      d_means_3[[j]] <- d_means_j ##store
+}
+
+## Compare 2nd- versus 3rd-order selection
+d_means_2
+d_means_3
+
+## IV) T-tests
