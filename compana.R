@@ -184,7 +184,7 @@ colnames(veg_over) <- c("id", "season", "ud", "veg", "x", "y")
 veg_over <- veg_over[!is.na(veg_over$veg),] ## there were none anyway
 
 ######################
-## 5. Create matrix of use values (proportion of UD height per veg type / total UD height in home range)
+## 5. Create matrix of use proportions (total UD height per veg type / total UD height in home range)
 ######################
 
 use_data <- list()
@@ -204,18 +204,18 @@ for (j in 1:3){
     use <- cast(uds.season, id ~ veg, value = 'prop_used')
     use_data[[j]] <- data.frame(use[,-1], row.names = use[,1])
     colnames(use_data[[j]]) <- gsub('[.]', ' ', colnames(use_data[[j]])) ## add veg types as colnames
-    #use_data[[j]][use_data[[j]] == 0] <- NA ## for 2nd-order compana only? see below. 0s are also problematic.
+    #use_data[[j]][use_data[[j]] == 0] <- NA ## for 2nd-order compana only? see below. 0s are also problematic even if they're true.
     use_data[[j]][is.na(use_data[[j]])] <- 0 ## what to change NAs to? *see below
 }
 
-## * If using 'use_data' for function 'compana,' keep NAs as NA (or 0?); 'compana' will replace them automatically
+## * If using 'use_data' for function 'compana,' keep NAs as NA (or 0?); 'compana' will replace them automatically.
 ## * But if doing manually: 
-##      - If availability != 0 but use = 0, this is meaningful (in the case of all 2nd order, and some winter 3rd order). 
-##        However, 0 will become -Inf in the log-ratio, so we need to replace it with a small nonzero number.
-##        (I'll use 1e-10)
-##        Aebischer: it should be smaller than the smallest non-zero number. (can remove 0 and use min())
-##      - If availability = 0 and use = 0 (common in 3rd order): leave it as NA (or 0?) here.
-##        We will later replace missing log-ratio values with the mean of remaing log-ratios per veg type.
+##    - If availability != 0 but use = 0, this is meaningful (in the case of 2nd order, and some winter 3rd order). 
+##      However, 0 will become -Inf in the log-ratio, so we need to replace it with a small nonzero number.
+##      (I'll use 1e-10) ** Keep as 0/NA for now becuase I'll replace below (7a. step I)
+##      Aebischer: it should be smaller than the smallest non-zero number. (can remove 0 and use min())
+##    - If availability = 0 and use = 0 (common in 3rd order): leave it as NA (or 0?) here.
+##      We will later replace missing log-ratio values with the mean of remaing log-ratios per veg type.
     
 ######################
 ## 5. Create matrix of availability data
@@ -315,32 +315,51 @@ scatter(eis)
 ##    a. 2nd order
 ######################
 
+## ** Go back and check that NAs in 'use' are kept as 0/NA and not 1e-10 (Step 5, 'use_data' list). I'll replace them here after checking whether avail = 0.
+
 ## I) First, test for overall selection (Wilk's lambda / MANOVA) -- haven't been able to get manova to work
-## ** go back and check NA/0 in creation of 'use_data' list
 
 use_avail_2 <- list() ## combine use and availability data
 for (j in 1:3){
-      use.j <- data.frame(use_data[[j]])
+    use.j <- data.frame(use_data[[j]])
       use.j$id <- rownames(use.j)
       use <- reshape(use.j, varying = 1:9, direction = 'long', v.names = 'used_prop', timevar = 'veg',
                      idvar = 'id', times = colnames(use.j[,1:9]))
-      avail.j <- data.frame(avail_2[[j]])
+    avail.j <- data.frame(avail_2[[j]])
       avail.j$id <- rownames(avail.j)
       avail <- reshape(avail.j, varying = 1:9, direction = 'long', v.names = 'avail_prop', timevar = 'veg',
                        idvar = 'id', times = colnames(avail.j[,1:9]))
-      use_avail <- use
+    use_avail <- use
       use_avail$avail_prop <- avail$avail_prop
       rownames(use_avail) <- NULL
-      use_avail_2[[j]] <- use_avail      
+    ## What to do with 0 use values?
+      use_avail$used_prop[use_avail$avail_prop != 0 & use_avail$used_prop == 0] <- 1e-10 #it really IS no use, but 0 will throw off log-ratios
+    ## Compute log-ratios: either log(use)-log(avail) OR log(use/avail)
+      use_avail$log_ratio <- log(use_avail$used_prop) - log(use_avail$avail_prop)
+      use_avail_2[[j]] <- use_avail ## store
 }
 
-wilks_results <- list() ## store Wilk's lambda results by season
+anova_2 <- aov(log_ratio ~ veg*id, data = use_avail_2[[1]])
+summary(manova_2)
+plot(manova_2)
+
+## how is it a MANOVA? what are the 2 dependent variables? use & avail?
+Y <- data.frame(use_avail_2[[1]][,3:4])
+A <- use_avail_2[[1]][,2] #veg
+B <- use_avail_2[[1]][,1] #id
+manova_2 <- manova(Y ~ A*B)
+manova_2 <- manova(cbind(used_prop, avail_prop) ~ veg*id, data = use_avail_2[[1]])
+summary(manova_2, test = 'Wilks')
+
+## PICK UP HERE
+
+wilks_results_2 <- list() ## store Wilk's lambda results by season
 for (j in 1:3){
       use_avail_j <- use_avail_2[[j]]
       groups <- as.factor(use_avail_j$veg)
       x <- as.matrix(use_avail_j[,3:4])
       wilks_j <- Wilks.test(x, grouping = groups, method = 'c') ## which method?
-      wilks_results[[j]] <- wilks_j
+      wilks_results_2[[j]] <- wilks_j
 }
 ## lambda is 0 for overall and summer... that doesn't seem right
 
@@ -349,7 +368,6 @@ for (j in 1:3){
 
 log_ratios_2 <- list()
 for (j in 1:3){
-      use_avail_2[[j]]$log_ratio <- log(use_avail_2[[j]]$used_prop) - log(use_avail_2[[j]]$avail_prop)
       log_ratios_j <- use_avail_2[[j]][,c(1:2, 5)]
       log_ratios_j <- reshape(log_ratios_j, timevar = 'veg', idvar = 'id', direction = 'wide')
       names(log_ratios_j) <- gsub('log_ratio.', '', names(log_ratios_j)) ## get rid of 'sel' in column names
@@ -370,19 +388,54 @@ for (j in 1:3){
       colnames(ref_matrix) <- colnames(matrix_j)
       d_matrix_2[[j]] <- matrix_j - ref_matrix ## store for doing t-tests
 
-      d_means_j <- colMeans(d_matrix_2[[j]]) ## shouldn't be no NAs in 2nd order (no need fro rm.na = TRUE)
+      d_means_j <- colMeans(d_matrix_2[[j]]) ## shouldn't be any NAs in 2nd order (no need for rm.na = TRUE)
       d_means_j <- stack(d_means_j)
       colnames(d_means_j) <- c('d', 'veg')
       d_means_j$rank <- rank(-d_means_j$d) ## negative sign so it ranks largest -> smallest
       d_means_2[[j]] <- d_means_j ##store
 }
 
-## IV) T-tests
+## IV) t-tests on the differences in log-ratio between each veg category and the reference category,
+##      then pairwise between all veg categories (see Erickson et al. 2001, pg 228)
+ttests_2 <- list()
+ref <- 4
+for (j in 1:3){
+    season <- d_matrix_2[[j]][,-ref] ## remove reference category
+      # first test between each category and the reference  
+      pairwise_k <- NULL
+        for (k in 1:length(season)){
+          ttest_k <- t.test(season[,k], mu = 0) ## 1-sample t-test against reference category
+          ttest_k_df <- data.frame(k, 0, ttest_k$estimate, ttest_k$conf.int[1], ttest_k$conf.int[2], ttest_k$p.value) ## 0 stands for reference category ('veg type 0')
+          colnames(ttest_k_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')  
+          pairwise_k <- bind_rows(pairwise_k, ttest_k_df) ## store
+        # then test pairwise between all categories 
+        pairwise_l  <- NULL
+          for (l in 1:length(season)){
+              ttest_l <- t.test(season[,k], season[,l], paired = TRUE)
+              ttest_l_df <- data.frame(k, l, ttest_l$estimate, ttest_l$conf.int[1], ttest_l$conf.int[2], ttest_l$p.value)
+              colnames(ttest_l_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')
+              pairwise_l <- bind_rows(pairwise_l, ttest_l_df) ## store
+          }
+          pairwise_k <- bind_rows(pairwise_k, pairwise_l)
+          veg_key <- data.frame((names(season)), 1:length(season))
+          colnames(veg_key) <- c('veg', 'veg_id')
+          ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category label
+          veg_key <- rbind(veg_key, ref_key)
+          pairwise_k$veg1 <- veg_key[match(pairwise_k$v1, veg_key$veg_id), 'veg'] 
+          pairwise_k$veg2 <- veg_key[match(pairwise_k$v2, veg_key$veg_id), 'veg']
+        }      
+      ttests_2[[i]] <- pairwise_k
+}
 
-#########################################
+## V) Create table of significance codes based on t-tests
+##    (see raccoon paper for example)
 
-#### THIRD ORDER
-## ** go up and re-run use_data, retaining NA/0 values instead of replacing them with 1e-10
+######################
+## 7. Do compositional analysis by hand (ala Erickson et al. 2001 matrices)
+##    b. 3rd order
+######################
+
+## ** Go back and check that NAs in 'use' are kept as 0/NA and not 1e-10 (Step 5, 'use_data' list). I'll replace them here after checking whether avail = 0.
 
 ## I) First, test for overall selection (Wilk's lambda / MANOVA) -- haven't been able to get manova to work
 
@@ -396,23 +449,24 @@ for (j in 1:3){
       avail.j$id <- rownames(avail.j) ## we have some 0s. leave for now and replace at log-ratio step
       avail <- reshape(avail.j, varying = 1:9, direction = 'long', v.names = 'avail_prop', timevar = 'veg',
                        idvar = 'id', times = colnames(avail.j[,1:9]))
-      
     use_avail <- use
       use_avail$avail_prop <- avail$avail_prop
       rownames(use_avail) <- NULL
+    ## What to do with 0 use values?
       use_avail$used_prop[use_avail$avail_prop != 0 & use_avail$used_prop == 0] <- 1e-10 #it really IS no use, but 0 will throw off log-ratios
-      use_avail$used_prop[use_avail$avail_prop == 0 & use_avail$used_prop == 0] <- NA #will replace with mean down below
-     # use_avail$avail_prop[use_avail$avail_prop == 0] <- NA #redundant
-    use_avail_3[[j]] <- use_avail      
+      use_avail$used_prop[use_avail$avail_prop == 0 & use_avail$used_prop == 0] <- NA #missing data; will replace with mean down below
+    ## Compute log-ratios: either log(use)-log(avail) OR log(use/avail)
+      use_avail$log_ratio <- log(use_avail$used_prop) - log(use_avail$avail_prop)
+      use_avail_3[[j]] <- use_avail ## STORE     
 }
 
-wilks_results <- list() ## store Wilk's lambda results by season
+wilks_results_3 <- list() ## store Wilk's lambda results by season
 for (j in 1:3){
       use_avail_j <- use_avail_3[[j]]
-      groups <- as.factor(use_avail_j$veg)
-      x <- as.matrix(use_avail_j[,3:4])
-      wilks_j <- Wilks.test(x, grouping = groups, method = 'c') ## which method?
-      wilks_results[[j]] <- wilks_j
+      groups <- as.factor(use_avail_j$veg)  ## veg classes
+      x <- as.matrix(use_avail_j[,3:4])  ## used vs. available proportions
+      wilks_j <- Wilks.test(x, grouping = groups, method = 'c')  ## which method?
+      wilks_results_3[[j]] <- wilks_j
 }
 ## good, all significantly different from random
 
@@ -429,12 +483,12 @@ for (j in 1:3){
       rownames(log_ratios_j) <- log_ratios_j[,1]
       log_ratios_j <- log_ratios_j[,-1]
     for (k in 1:ncol(log_ratios_j)){
-      ## replace missing values with the mean of log-ratios for each veg type (column) based on all nonzero values (ala Aebischer et al. 1993, Appendix 2)
+      ## replace missing values (avail & use = NA) with the mean of log-ratios for each veg type (column) based on all non-NA values (ala Aebischer et al. 1993, Appendix 2)
       log_ratios_j[is.na(log_ratios_j[,k]), k] <- mean(log_ratios_j[,k], na.rm = TRUE)
   }
   log_ratios_3[[j]] <- log_ratios_j
 }
-## The column means (mean log-ratio per veg type) are the same as they were with just non-zero values
+## This keeps the column means (mean log-ratio per veg type) the same as they were with just the non-NA values
 ## But see caveats in Aebischer et al. 1993 (Appendix 2) re: independence and suggestion for computing mean lambda
 
 ## III) Create a matrix like Erickson et al. 2001 by subtracting the reference category log-ratio 
@@ -448,15 +502,45 @@ for (j in 1:3){
       colnames(ref_matrix) <- colnames(matrix_j)
       d_matrix_3[[j]] <- matrix_j - ref_matrix ## store for doing t-tests
       
-      d_means_j <- colMeans(d_matrix_3[[j]]) ## shouldn't be no NAs (no need fro rm.na = TRUE)
+      d_means_j <- colMeans(d_matrix_3[[j]]) ## shouldn't be any NAs (no need for rm.na = TRUE)
       d_means_j <- stack(d_means_j)
       colnames(d_means_j) <- c('d', 'veg')
       d_means_j$rank <- rank(-d_means_j$d) ## negative sign so it ranks largest -> smallest
       d_means_3[[j]] <- d_means_j ##store
 }
 
-## Compare 2nd- versus 3rd-order selection
+## Compare 2nd- versus 3rd-order selectionv ranks:
 d_means_2
 d_means_3
 
-## IV) T-tests
+## IV) t-tests on the differences in log-ratio between each veg category and the reference category,
+##      then pairwise between all veg categories (see Erickson et al. 2001, pg 228)
+ttests_3 <- list()
+ref <- 4
+for (j in 1:3){
+    season <- d_matrix_3[[j]][,-ref] ## remove reference category
+      # first test between each category and the reference  
+      pairwise_k <- NULL
+        for (k in 1:length(season)){
+            ttest_k <- t.test(season[,k], mu = 0) ## 1-sample t-test against reference category
+            ttest_k_df <- data.frame(k, 0, ttest_k$estimate, ttest_k$conf.int[1], ttest_k$conf.int[2], ttest_k$p.value) ## 0 stands for reference category ('veg type 0')
+            colnames(ttest_k_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')  
+            pairwise_k <- bind_rows(pairwise_k, ttest_k_df) ## store
+        # then test pairwise between all categories 
+          pairwise_l  <- NULL
+            for (l in 1:length(season)){
+                ttest_l <- t.test(season[,k], season[,l], paired = TRUE)
+                ttest_l_df <- data.frame(k, l, ttest_l$estimate, ttest_l$conf.int[1], ttest_l$conf.int[2], ttest_l$p.value)
+                colnames(ttest_l_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')
+                pairwise_l <- bind_rows(pairwise_l, ttest_l_df) ## store
+            }
+            pairwise_k <- bind_rows(pairwise_k, pairwise_l)
+            veg_key <- data.frame((names(season)), 1:length(season))
+            colnames(veg_key) <- c('veg', 'veg_id')
+            ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category label
+            veg_key <- rbind(veg_key, ref_key)
+            pairwise_k$veg1 <- veg_key[match(pairwise_k$v1, veg_key$veg_id), 'veg'] 
+            pairwise_k$veg2 <- veg_key[match(pairwise_k$v2, veg_key$veg_id), 'veg']
+          }      
+      ttests_3[[i]] <- pairwise_k
+}
