@@ -199,6 +199,7 @@ for(i in ids){
 }
  
 ## 2nd ORDER: Also used clipped seasonal UDs but just make a table, not list (could also use this for 3rd)
+## (use is the same)
 ids <- unique(porc.locs$id)
 heights.2 <- NULL
 
@@ -304,6 +305,7 @@ for (i in ids){
 
 #### FOR 2nd order:
 ## Use above, but also need to sum / avg the log_ud_weights across veg types
+#### THIS IS WRONG; SHOULDN'T AVERAGE ACROSS ANIMALS YET. FOR 2ND ORDER, INDIVIDUALS ARE STILL SEPARATE.
 
 ## summing the UD weights (UD height / total in home range), then dividing by the number of animals
 ## with that veg type, gives the result I want. Can't just add raw UD values and divide by total 
@@ -454,12 +456,13 @@ write.csv(sel.tables.2[[3]], 'csvs/winter_wt_comp_analysis_2nd_080816.csv')
 groups <- as.factor(summer.sel$veg)
 x <- as.matrix(summer.sel[,4:5])
 
-manova.3 <- manova(log_ud_wt ~ log_avail * veg, summer.sel, data = summer.sel)
-
 ## can do method "c" for mean and variance or "rank" for wilks lambda ranks
 ## am I doing this right? should I just do MANOVA on the ranking table (below)?
 wilks.summer <- Wilks.test(x, grouping = groups, method="rank")
 wilks.summer
+
+## test MANOVA...
+manova.3 <- manova(log_ud_wt ~ log_avail * veg, summer.sel, data = summer.sel)
 
 ############## 
 ### SECOND ORDER

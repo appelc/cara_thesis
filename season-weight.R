@@ -29,17 +29,18 @@ m.wts <- droplevels(m.wts)
 f.wts <- porc.wts[porc.wts$sex == "F",]
 f.wts <- droplevels(f.wts)
 
-## get rid of singletons (Bowie and Badger)?
-f.wts <- f.wts[f.wts$id != "15.05" & f.wts$id != "16.16",]
+## get rid of singletons (05, 16, 19)?
+#f.wts <- f.wts[f.wts$id != "15.05" & f.wts$id != "16.16",]
+#m.wts <- m.wts[m.wts$id != '16.19',]
 
 ##########################################################
 ### (1) create figure with trends for each animal
 ##########################################################
 
-ggplot(data=porc.wts, aes(x = date, y = wt, group = id)) +
-          geom_point(data = f.wts, aes(y = f.wts$wt, colour = 'Female', shape = 'Female'), size = 5) + 
+ggplot(data=porc.wts, aes(x = date, y = kg, group = id)) +
+          geom_point(data = f.wts, aes(y = f.wts$kg, colour = 'Female', shape = 'Female'), size = 5) + 
           geom_line(data = f.wts, colour = 'black', size = 2) +
-          geom_point(data = m.wts, aes(y = m.wts$wt, colour = 'Male', shape = 'Male'), size = 5) + 
+          geom_point(data = m.wts, aes(y = m.wts$kg, colour = 'Male', shape = 'Male'), size = 5) + 
           geom_line(data = m.wts, colour = 'darkgray', size = 2, lty = 2) +
           ylab('Body mass (kg)') + xlab('Date') + 
           scale_y_continuous(limits = c(4,11)) +
@@ -105,10 +106,10 @@ mean(cap.wts$kg)
 ## maybe random effect or ANOVA.
 ## how could I look at weight change to find a seasonal switch?
 
-lm1 <- lm(wt ~ date, data=porc.wts)
+lm1 <- lm(kg ~ date, data=porc.wts)
 summary(lm1)
 
-plot(wt ~ date, data=porc.wts)
+plot(kg ~ date, data=porc.wts)
 abline(lm1)
 
 ##########################################################

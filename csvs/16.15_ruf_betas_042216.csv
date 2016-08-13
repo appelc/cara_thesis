@@ -1,0 +1,8 @@
+"","x"
+"(Intercept)",0.279044093686225
+"factor(veg)Coastal scrub",0.00843353062766602
+"factor(veg)Conifer forest",0.0678853773925441
+"factor(veg)Meadow",0.195042632192172
+"factor(veg)Pasture",-0.13711315468772
+"factor(veg)Shrub swale",-0.119780794509472
+"factor(veg)Wooded swale",0.0493425409711488
