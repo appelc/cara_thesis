@@ -7,7 +7,7 @@ library(googlesheets)
 library(raster)
 library(rgdal)
 library(rgeos)
-library(lattice) #?
+library(lattice) 
 library(rrcov)
 library(ggplot2)
 library(maptools) #?
@@ -91,8 +91,8 @@ for (i in ids){
         locs.win.i$id_season <- rep(paste(i, "_win", sep = ""), nrow(locs.win.i))
         locs.all.i <- rbind(locs.i, locs.sum.i, locs.win.i)
         sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
-                                       data=data.frame(locs.all.i$id_season),
-                                       proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
+                                       data = data.frame(locs.all.i$id_season),
+                                       proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
         c = 10   ## desired cell size (meters)
         fake.kern <- kernelUD(xy = sp.i, extent = 1)
         spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
@@ -494,6 +494,7 @@ for (j in 1:3){
   }
   log_ratios_3[[j]] <- log_ratios_j
 }
+
 ## This keeps the column means (mean log-ratio per veg type) the same as they were with just the non-NA values
 ## But see caveats in Aebischer et al. 1993 (Appendix 2) re: independence and suggestion for computing mean lambda
 
@@ -561,7 +562,7 @@ for (j in 1:3){
 }
 
 ############################################
-## 8. Boxplots
+## 8. Boxplots (difference in log ratio between each veg category and the reference category)
 ## These are similar to Figure 5 in Millspaugh et al. 2006
 ## - do I want horizontal or vertical? add '+ coord_flip()' 
 ## - 'guide = FALSE' in scale_fill_manual turns off the legend (since I have axis labels)
@@ -571,8 +572,8 @@ for (j in 1:3){
 ############################################
 
 ## assign colors to veg classes for plotting:
-veg_class <- c('beach', 'beachgrass.dune', 'coastal.scrub', 'conifer.forest', 'fruit.tree', 'marsh', 'meadow', 'pasture', 'swale')
-veg_colors <- c("khaki1", "khaki3", "khaki4", "darkolivegreen4", "coral1", "aquamarine", "yellow3", "darkolivegreen3", "darkseagreen3")
+veg_class <- c('beach', 'beachgrass dune', 'coastal scrub', 'conifer forest', 'fruit tree', 'marsh', 'meadow', 'pasture', 'swale')
+veg_colors <- c('khaki1', 'khaki3', 'khaki4', 'darkolivegreen4', 'coral1', 'aquamarine', 'yellow3', 'darkolivegreen3', 'darkseagreen3')
 colors <- data.frame(veg_class, veg_colors)
 colors$veg_colors <- as.character(colors$veg_colors)
 
@@ -708,3 +709,147 @@ w3
 ##    Will the order be different? Is this what Marzluff did (or is theirs diff.)? It just might be more 
 ##    intuitive to look at a figure of 'mean selection ratio,' and they will be centered on 0.
 
+############################################
+##  9. Box plots (log ratios = proportional use - proportional availability)  
+##      Because these are centered on 0 (so + means select, - means avoid),  these may be more intuitive 
+##      than the boxplots above (the difference in log ratio compared to a reference category).
+##      The veg types are still ordered by their ranks, which are based on the log-ratio differences.
+##    a. 2nd order
+############################################
+
+## Reshape 'log_ratios_2'
+lr_2s <- reshape(log_ratios_2[[2]], direction = 'long', varying = list(1:9), v.names = 'log_ratio', timevar = 'veg', times = colnames(log_ratios_2[[2]]))
+lr_2s$rank <- d_means_2[[2]][match(lr_2s$veg, d_means_2[[2]]$veg), 'rank']
+
+lr_2w <- reshape(log_ratios_2[[3]], direction = 'long', varying = list(1:9), v.names = 'log_ratio', timevar = 'veg', times = colnames(log_ratios_2[[3]]))
+lr_2w$rank <- d_means_2[[3]][match(lr_2w$veg, d_means_2[[3]]$veg), 'rank']
+
+s2_lr <- ggplot(data = lr_2s, aes(x = reorder(veg, rank), y = log_ratio, fill = as.factor(veg))) +
+          stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+          geom_point(position = position_dodge(0.8), size = 2) +
+          scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+          geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-23, 5) + ## *see note above
+          xlab('Vegetation Type') + ylab('Log Ratio') +
+          theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 12, colour = 'black'),
+                axis.title = element_text(size = 12, colour = 'black'),
+                axis.line.x = element_line(size = 0.5, colour = 'black'),
+                axis.line.y = element_line(size = 0.5, colour = 'black'),
+                panel.background = element_rect(fill = 'white')) #+
+         # geom_text(label ='*', aes(x = 1, y = -20), size = 8, colour = 'grey50') +
+         # geom_text(label ='*', aes(x = 8, y = -20), size = 8, colour = 'grey50') +
+         # geom_text(label ='*', aes(x = 9, y = -20), size = 8, colour = 'grey50')
+s2_lr 
+
+w2_lr <- ggplot(data = lr_2w, aes(x = reorder(veg, rank), y = log_ratio, fill = as.factor(veg))) +
+          stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+          geom_point(position = position_dodge(0.8), size = 2) +
+          scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+          geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-23, 5) + ## *see note above
+          xlab('Vegetation Type') + ylab('Log Ratio') +
+          theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 12, colour = 'black'),
+                axis.title = element_text(size = 12, colour = 'black'),
+                axis.line.x = element_line(size = 0.5, colour = 'black'),
+                axis.line.y = element_line(size = 0.5, colour = 'black'),
+                panel.background = element_rect(fill = 'white')) #+
+          # geom_text(label ='*', aes(x = 1, y = -20), size = 8, colour = 'grey50') +
+          # geom_text(label ='*', aes(x = 8, y = -20), size = 8, colour = 'grey50') +
+          # geom_text(label ='*', aes(x = 9, y = -20), size = 8, colour = 'grey50')
+w2_lr 
+
+############################################
+##    b. 3rd order
+############################################
+
+lr_3s <- reshape(log_ratios_3[[2]], direction = 'long', varying = list(1:9), v.names = 'log_ratio', timevar = 'veg', times = colnames(log_ratios_3[[2]]))
+lr_3s$rank <- d_means_3[[2]][match(lr_3s$veg, d_means_3[[2]]$veg), 'rank']
+
+lr_3w <- reshape(log_ratios_3[[3]], direction = 'long', varying = list(1:9), v.names = 'log_ratio', timevar = 'veg', times = colnames(log_ratios_3[[3]]))
+lr_3w$rank <- d_means_3[[3]][match(lr_3w$veg, d_means_3[[3]]$veg), 'rank']
+
+s3_lr <- ggplot(data = lr_3s, aes(x = reorder(veg, rank), y = log_ratio, fill = as.factor(veg))) +
+          stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+          geom_point(position = position_dodge(0.8), size = 2) +
+          scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+          geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-5, 5) + ## *see note above
+          xlab('Vegetation Type') + ylab('Log Ratio') +
+          theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 12, colour = 'black'),
+                axis.title = element_text(size = 12, colour = 'black'),
+                axis.line.x = element_line(size = 0.5, colour = 'black'),
+                axis.line.y = element_line(size = 0.5, colour = 'black'),
+                panel.background = element_rect(fill = 'white')) #+
+        # geom_text(label ='*', aes(x = 1, y = -20), size = 8, colour = 'grey50') +
+        # geom_text(label ='*', aes(x = 8, y = -20), size = 8, colour = 'grey50') +
+        # geom_text(label ='*', aes(x = 9, y = -20), size = 8, colour = 'grey50')
+s3_lr 
+
+w3_lr <- ggplot(data = lr_3w, aes(x = reorder(veg, rank), y = log_ratio, fill = as.factor(veg))) +
+          stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+          geom_point(position = position_dodge(0.8), size = 2) +
+          scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+          geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-23, 5) + ## *see note above
+          xlab('Vegetation Type') + ylab('Log Ratio') +
+          theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 12, colour = 'black'),
+                axis.title = element_text(size = 12, colour = 'black'),
+                axis.line.x = element_line(size = 0.5, colour = 'black'),
+                axis.line.y = element_line(size = 0.5, colour = 'black'),
+                panel.background = element_rect(fill = 'white')) #+
+        # geom_text(label ='*', aes(x = 1, y = -20), size = 8, colour = 'grey50') +
+        # geom_text(label ='*', aes(x = 8, y = -20), size = 8, colour = 'grey50') +
+        # geom_text(label ='*', aes(x = 9, y = -20), size = 8, colour = 'grey50')
+w3_lr 
+
+############################################
+##  10. Create some cool figures for presentation
+##      a. Summer & winter points within home range, overlaid on veg classes
+############################################
+
+sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
+                    data = data.frame(sum.locs), 
+                    proj4string = CRS('+proj=utm +zone=10 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0'))
+win.sp <- SpatialPointsDataFrame(data.frame(win.locs$utm_e, win.locs$utm_n),
+                     data = data.frame(win.locs), 
+                     proj4string = CRS('+proj=utm +zone=10 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0'))
+ids <- unique(porc.locs$id)
+for (i in ids){
+      veg.i <- veg_home_ranges[[i]]
+      veg.i$colors <- colors[match(veg.i$Class_4, colors$veg_class), 'veg_colors']
+      mypath <- file.path('figures', 'kdes_with_veg', '081316', paste(i, '_veg_99kde', '.png', sep = ''))
+      png(file = mypath)
+      mytitle = paste('99% KDE', i, sep = ' ')
+      par(mar = c(2, 0.2, 4, 6), xpd = TRUE) ## margins: bottom, left, top, right
+    plot(outer_cont99[[i]], main = mytitle)    
+      for (v in veg_class){     ## veg_class defined above
+          plot(veg.i[veg.i@data$Class_4 == v,], add = TRUE, col = veg.i@data$colors[veg.i@data$Class_4 == v])
+      }
+    points(sum.sp[sum.sp@data$id == i,], pch = 16, cex = 1.5, col = 'red')
+    points(win.sp[win.sp@data$id == i,], pch = 16, cex = 1.5, col = 'darkblue')
+      leg.txt <- sort(unique(veg$Class_4))
+      leg.col <- colors$veg_colors
+      legend('topright', inset = c(-0.1,-0.1), legend = leg.txt, pch = 15, col = leg.col, cex = 1.2)
+      legend('bottomright', inset=c(-0.1,0.1), legend = c('Summer points', 'Winter points'), pch = 16, col=c('red', 'darkblue'), cex = 1.2)
+      scalebar(500, xy = click(), type = 'bar', divs = 4, below = 'meters')
+    dev.off() 
+}
+
+plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="black")
+plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="red")
+
+
+## may need to run this again to be able to plot again:
+#dev.off()
+
+## make veg map
+veg$colors <- colors[match(veg$Class_4, colors$veg_class), 'veg_colors']
+plot(veg)
+for (v in veg_class){
+      plot(veg[veg$Class_4 == v,], add = TRUE, col = veg$colors[veg$Class_4 == v])
+}
+
+scalebar(1000, xy=click(), type='bar', divs=2, below = "m") ## click to place (so cool!)
+
+plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="black")
+plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="red")
