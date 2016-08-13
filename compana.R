@@ -429,10 +429,10 @@ for (j in 1:3){
         tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '++'
         tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '+++'
         tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.001] <- '++++'
-      tests_j$sig[tests_j$mean_diff < 0] <- '-'
-        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '--'
-        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '---'
-        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '----'
+      tests_j$sig[tests_j$mean_diff < 0] <- '\u2013' ## en dashes!
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '\u2013 \u2013'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '\u2013 \u2013 \u2013'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '\u2013 \u2013 \u2013 \u2013'
       matrix_j <- cast(tests_j, veg1 ~ veg2, value = 'sig')
       ttest_matrix_2[[j]] <- matrix_j
 }
@@ -552,10 +552,10 @@ for (j in 1:3){
         tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '++'
         tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '+++'
         tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.001] <- '++++'
-      tests_j$sig[tests_j$mean_diff < 0] <- '-'
-        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '--'
-        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '---'
-        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '----'
+      tests_j$sig[tests_j$mean_diff < 0] <- '\u2013' ## en dashes!
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '\u2013 \u2013'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '\u2013 \u2013 \u2013'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '\u2013 \u2013 \u2013 \u2013'
       matrix_j <- cast(tests_j, veg1 ~ veg2, value = 'sig')
       ttest_matrix_3[[j]] <- matrix_j
 }
@@ -585,21 +585,23 @@ min.mean.se.max <- function(x) {
 ############################################
 ##    a. 2nd order
 ############################################
+overall_melt_2 <- melt(d_matrix_2[[1]])
+colnames(overall_melt_2) <- c('veg', 'd')
+overall_melt_2$rank <- d_means_2[[1]][match(overall_melt_2$veg, d_means_2[[1]]$veg), 'rank']
+
 summer_melt_2 <- melt(d_matrix_2[[2]]) ## message OK
 colnames(summer_melt_2) <- c('veg', 'd')
-summer_melt_2$season <- rep('sum', nrow(summer_melt_2))
 summer_melt_2$rank <- d_means_2[[2]][match(summer_melt_2$veg, d_means_2[[2]]$veg), 'rank'] ## where 3 is the 'rank' column in d_means_3[[2]]
 
 winter_melt_2 <- melt(d_matrix_2[[3]])
 colnames(winter_melt_2) <- c('veg', 'd')
-winter_melt_2$season <- rep('win', nrow(winter_melt_2))
 winter_melt_2$rank <- d_means_2[[3]][match(winter_melt_2$veg, d_means_2[[3]]$veg), 'rank']
 
 s2 <- ggplot(data = summer_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
         stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
         geom_point(position = position_dodge(0.8), size = 2) +
         scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
-        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-23, 10) + ## *see note above
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-24, 10) + ## *see note above
         xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
       theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
             axis.text.y = element_text(size = 12, colour = 'black'),
@@ -607,16 +609,18 @@ s2 <- ggplot(data = summer_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.
             axis.line.x = element_line(size = 0.5, colour = 'black'),
             axis.line.y = element_line(size = 0.5, colour = 'black'),
             panel.background = element_rect(fill = 'white')) +
-        geom_text(label ='*', aes(x = 1, y = -5), size = 8, colour = 'grey50') +
-        geom_text(label ='*', aes(x = 2, y = -5), size = 8, colour = 'grey50') +
-        geom_text(label ='*', aes(x = 3, y = -5), size = 8, colour = 'grey50')
+        geom_text(label ='*', aes(x = 2, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 6, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 7, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 8, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 9, y = -24), size = 8, colour = 'grey50')
 s2 
 
 w2 <- ggplot(data = winter_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
         stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
         geom_point(position = position_dodge(0.8), size = 2) +
         scale_fill_manual(values = colors$veg_color, guide = FALSE) +
-        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-23.0, 10.0) + ## *see note above
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-24, 10) + ## *see note above
         xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
       theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
             axis.text.y = element_text(size = 12, colour = 'black'),
@@ -624,21 +628,39 @@ w2 <- ggplot(data = winter_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.
             axis.line.x = element_line(size = 0.5, colour = 'black'),
             axis.line.y = element_line(size = 0.5, colour = 'black'),
             panel.background = element_rect(fill = 'white')) +
-        geom_text(label ='*', aes(x = 1, y = -15), size = 8, colour = 'grey50') +
-        geom_text(label ='*', aes(x = 9, y = -15), size = 8, colour = 'grey50')
+        geom_text(label ='*', aes(x = 7, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 8, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 9, y = -24), size = 8, colour = 'grey50')
 w2
+
+## overall (at the most basic level, where did they choose their home ranges?)
+o2 <- ggplot(data = overall_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+        geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-24, 10) + ## *see note above
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+        theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+              axis.text.y = element_text(size = 12, colour = 'black'),
+              axis.title = element_text(size = 12, colour = 'black'),
+              axis.line.x = element_line(size = 0.5, colour = 'black'),
+              axis.line.y = element_line(size = 0.5, colour = 'black'),
+              panel.background = element_rect(fill = 'white')) +
+        geom_text(label ='*', aes(x = 6, y = -24), size = 8, colour = 'grey50') +      
+        geom_text(label ='*', aes(x = 7, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 8, y = -24), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 9, y = -24), size = 8, colour = 'grey50')
+o2
 
 ############################################
 ##    b. 3rd order
 ############################################
 summer_melt_3 <- melt(d_matrix_3[[2]]) ## message OK
 colnames(summer_melt_3) <- c('veg', 'd')
-summer_melt_3$season <- rep('sum', nrow(summer_melt_3))
 summer_melt_3$rank <- d_means_3[[2]][match(summer_melt_3$veg, d_means_3[[2]]$veg), 'rank'] ## where 3 is the 'rank' column in d_means_3[[2]]
 
 winter_melt_3 <- melt(d_matrix_3[[3]])
 colnames(winter_melt_3) <- c('veg', 'd')
-winter_melt_3$season <- rep('win', nrow(winter_melt_3))
 winter_melt_3$rank <- d_means_3[[3]][match(winter_melt_3$veg, d_means_3[[3]]$veg), 'rank']
 
 s3 <- ggplot(data = summer_melt_3, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
@@ -655,7 +677,9 @@ s3 <- ggplot(data = summer_melt_3, aes(x = reorder(veg, rank), y = d, fill = as.
             panel.background = element_rect(fill = 'white')) +
         geom_text(label ='*', aes(x = 1, y = -5), size = 8, colour = 'grey50') +
         geom_text(label ='*', aes(x = 2, y = -5), size = 8, colour = 'grey50') +
-        geom_text(label ='*', aes(x = 3, y = -5), size = 8, colour = 'grey50')
+        geom_text(label ='*', aes(x = 3, y = -5), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 8, y = -5), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 9, y = -5), size = 8, colour = 'grey50')
 s3
 
 w3 <- ggplot(data = winter_melt_3, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
@@ -670,7 +694,17 @@ w3 <- ggplot(data = winter_melt_3, aes(x = reorder(veg, rank), y = d, fill = as.
             axis.line.x = element_line(size = 0.5, colour = 'black'),
             axis.line.y = element_line(size = 0.5, colour = 'black'),
             panel.background = element_rect(fill = 'white')) +
-        geom_text(label ='*', aes(x = 1, y = -15), size = 8, colour = 'grey50') +
-        geom_text(label ='*', aes(x = 9, y = -15), size = 8, colour = 'grey50')
+        geom_text(label ='*', aes(x = 1, y = -20), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 8, y = -20), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 9, y = -20), size = 8, colour = 'grey50')
 w3 
+
+##################################
+## NEXT STEPS (08/12/16, 7:18 pm)
+##
+## - Make one home range / veg / locations figure for talk
+## - Better boxplots? I am ranking them based on the difference in log ratio between each type and the
+##    reference type, but why can't I plot the mean selection ratio and just order them based on the ranks?
+##    Will the order be different? Is this what Marzluff did (or is theirs diff.)? It just might be more 
+##    intuitive to look at a figure of 'mean selection ratio,' and they will be centered on 0.
 
