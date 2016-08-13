@@ -1,20 +1,23 @@
+## WEIGHTED COMPOSITIONAL ANALYSIS FOR PORCUPINE HABITAT SELECTION
+## This script replaces 'wca_combined.R' as of 8/7/16
+
 library(adehabitatHR)
 library(adehabitatHS)
 library(googlesheets)
 library(raster)
 library(rgdal)
 library(rgeos)
-library(lattice)
+library(lattice) #?
 library(rrcov)
 library(ggplot2)
-library(maptools)
+library(maptools) #?
 library(dplyr)
 library(sp)
-library(reshape)
+library(reshape) ## and/or 'reshape2'?
 
-######################
+############################################
 ## 1. First, load porcupine location data & veg data
-######################
+############################################
 gs_ls()
 locs <- gs_title("Porc relocation data")
 porc.vhf <- data.frame(gs_read(ss=locs, ws="Relocations", is.na(TRUE), range=cell_cols(c(1:8))))
@@ -22,7 +25,7 @@ colnames(porc.vhf) <- c("date", "id", "sess", "type", "time", "az", "utm_e", "ut
 porc.vhf <- subset(porc.vhf, type %in% c("V","V*","P","P*","L"))
 porc.vhf$utm_e <- as.numeric(porc.vhf$utm_e)
 porc.vhf$utm_n <- as.numeric(porc.vhf$utm_n)
-## check date format before running line 51 or 52
+## check date format before running either line 51 or 52
 porc.vhf$date <- as.Date(porc.vhf$date, "%m/%d/%Y") 
 #porc.vhf$date <- as.Date(porc.vhf$date, origin = as.Date("1899-12-30"))
 
@@ -43,12 +46,7 @@ porc.locs <- rbind(porc.vhf, porc.gps.df)
 sum.locs <- porc.locs[(porc.locs$date < "2015-11-01") | (porc.locs$date >= "2016-03-01"), ]
 win.locs <- porc.locs[(porc.locs$date >= "2015-11-01") & (porc.locs$date < "2016-03-01"), ]
 
-## can add seasons this way, but still need to subset because I don't want to remove ALL points from an 
-## animal if it has <5 in only one season
-#porc.locs$season[(porc.locs$date < "2015-11-01") | (porc.locs$date >= "2016-03-01")] <- 'summer'
-#porc.locs$season[(porc.locs$date >= "2015-11-01") & (porc.locs$date < "2016-03-01")] <- 'winter'
-
-## Keep only animals with >= 5 locations
+## Keep only animals with >= 5 locations in each season (and overall; this only applies to 16.16)
 n <- table(sum.locs$id)
 sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
 sum.locs <- droplevels(sum.locs)
@@ -67,21 +65,19 @@ proj4string(veg) <- CRS("+proj=utm +zone=10 +datum=NAD83")
 veg.ext <- readOGR(dsn="shapefiles", layer="Veg extent new", verbose=TRUE)
 proj4string(veg.ext) <- proj4string(veg)
 
-######################
+############################################
 ## 2. Then, extract the UD from "adehabitatHR" package
-###################### 
+############################################
 
-## Calculate grid & extent based on desired cell size (# meters on each side)
-## For for each animal separately 
+## Calculate grid & extent based on desired cell size (# meters on each side) for each animal separately 
 
-## Also calculate KUD based on summer points ONLY and winter points ONLY, but within 
-## the grid of the extent for all of the points. Then clip to the 99% contour for all of 
-## the points, as well as the veg layer extent.
+## Also calculate UD based on summer points ONLY and winter points ONLY, but on the same grid as for all 
+## of the points. Then clip each UD to the combined outer 99% contour from all seasons, as well as the 
+## veg layer (study area) extent.
 
 ids <- unique(porc.locs$id)
 kde.areas <- list()
 kud.all <- list()
-kern.i <- list()
 outer_cont99 <- list()
 contours99 <- list()
 ud.list <- list()
@@ -108,7 +104,7 @@ for (i in ids){
           g <- (nor/c)
         }
         
-        # calculate UD on all IDs ("all," "summer," "winter") with same4all = TRUE
+        # calculate UD on all IDs ("all," "summer," "winter") on the same grid
         kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
         kde.i <- kernel.area(kern.i, percent = c(50, 90, 95, 99), unin = "m", unout = "km2", standardize = FALSE)
         data.frame(kde.i, row.names = c("50", "90", "95", "99"))
@@ -122,7 +118,7 @@ for (i in ids){
           cont99[[j]] <- cont99.i
         }
         
-        ## merge all 3 contours to make a single contour based on the outermost areas
+        ## merge all 3 contours to make a single contour based on the outermost boundary
         outer_cont99.i <- raster::union(cont99[[1]], cont99[[2]])
         if ((length(cont99)) > 2) {
           outer_cont99.i <- raster::union(outer_cont99.i, cont99[[3]]) ## because not all have winter
@@ -131,7 +127,7 @@ for (i in ids){
         outer_cont99.i <- gUnaryUnion(outer_cont99.i) ## dissolve polygons but this gets rid of @data
         outer_cont99.i@polygons[[1]]@ID <- 'homerange' ## so it will match when creating SPDF below
         
-        ## create data to make it a SPDF (necessary for steps later)
+        ## create @data to make it a SPDF (necessary for later steps)
         row_data <- data.frame('homerange', (outer_cont99.i@polygons[[1]]@Polygons[[1]]@area))
         rownames(row_data) <- rep('homerange', nrow(row_data))
         colnames(row_data) <- c('id', 'area')
@@ -139,9 +135,9 @@ for (i in ids){
         
         ## store contours (access as follows: contours[[i]][[j]] where i = ID and j = 1:all, 2:sum, 3:win)
         outer_cont99[[i]] <- outer_cont99.i ## store outer contours
-        contours99[[i]] <- cont99 ## all contours
+        contours99[[i]] <- cont99 ## store all contours
         
-        # clip summer & winter UD grids to the 99% outer contour and veg extent for 3rd order analysis
+        # clip summer & winter UD grids to the 99% outer contour and veg extent
         ud.i <- list()
         for (j in 1:length(kern.i)){
           clipped.ud.i <- (kern.i[[j]])[outer_cont99.i,] ## outer boundary from ALL contours, see above
@@ -151,29 +147,29 @@ for (i in ids){
         ud.list[[i]] <- ud.i
 } 
 
-######################
+############################################
 ## 3. Extract UD heights
-######################
+############################################
 
 ids <- unique(porc.locs$id)
 heights.2 <- NULL
 
 for (i in ids){
-  heights.i <- NULL
-  for(j in 1:length(ud.list[[i]])){
-    ud.i <- ud.list[[i]][[j]]
-    ud.height.i <- ud.i$ud
-    coords.i <- ud.i@coords
-    ht.coords.i <- data.frame((rep(i, length(ud.height.i))), rep(j, length(ud.height.i)), ud.height.i, coords.i)  
-    colnames(ht.coords.i) <- c('id', 'season', 'height', 'x', 'y')
-    heights.i <- rbind(heights.i, ht.coords.i)
-  }
-  heights.2 <- rbind(heights.2, heights.i)
+    heights.i <- NULL
+    for(j in 1:length(ud.list[[i]])){
+      ud.i <- ud.list[[i]][[j]]
+      ud.height.i <- ud.i$ud
+      coords.i <- ud.i@coords
+      ht.coords.i <- data.frame((rep(i, length(ud.height.i))), rep(j, length(ud.height.i)), ud.height.i, coords.i)  
+      colnames(ht.coords.i) <- c('id', 'season', 'height', 'x', 'y')
+      heights.i <- rbind(heights.i, ht.coords.i)
+    }
+    heights.2 <- rbind(heights.2, heights.i)
 }
 
-######################
-## 4. Assign values of covariates
-######################
+############################################
+## 4. Assign values of covariates (veg classes)
+############################################
 
 spdf <- SpatialPointsDataFrame(data.frame(heights.2$x, heights.2$y),
                                  data=data.frame(heights.2$id, heights.2$season, heights.2$height),
@@ -183,9 +179,9 @@ veg_over <- data.frame(spdf@data, spdf@coords)
 colnames(veg_over) <- c("id", "season", "ud", "veg", "x", "y")
 veg_over <- veg_over[!is.na(veg_over$veg),] ## there were none anyway
 
-######################
+############################################
 ## 5. Create matrix of use proportions (total UD height per veg type / total UD height in home range)
-######################
+############################################
 
 use_data <- list()
 for (j in 1:3){
@@ -217,14 +213,13 @@ for (j in 1:3){
 ##    - If availability = 0 and use = 0 (common in 3rd order): leave it as NA (or 0?) here.
 ##      We will later replace missing log-ratio values with the mean of remaing log-ratios per veg type.
     
-######################
+############################################
 ## 5. Create matrix of availability data
 ##    a. For the entire study area (2nd order)
-######################
+############################################
 
 veg.area <- gArea(veg, byid = TRUE) ## calculates areas of all the polygons (in m^2?)
-veg.df <- data.frame(veg$Class_4, veg.area)
-colnames(veg.df) <- c('veg', 'area')
+veg.df <- data.frame('veg' = veg$Class_4, 'area' = veg.area)
 
 veg_sum <- aggregate(area ~ veg, data = veg.df, FUN = sum) ## sum areas by veg type
 veg_prop <- veg_sum$area / sum(veg_sum$area)
@@ -239,9 +234,9 @@ for (j in 1:3){
     avail_2[[j]] <- avail_data_2
 }
 
-######################
+############################################
 ##    b. For each animal's home range (3rd order)
-######################
+############################################
 
 ## 'home ranges' are the 99% outer contours (countours99[[]])
 ids <- unique(porc.locs$id)
@@ -259,8 +254,7 @@ for (i in ids){
       clip.spdf <- clip.spdf[!is.na(clip.spdf@data$Class_4),] #get rid of NAs
       veg_home_ranges[[i]] <- clip.spdf ## store veg SPDF clipped to home ranges
       area.all <- gArea(clip.spdf, byid = TRUE) #units should be m^2
-      veg.df.i <- data.frame(clip.spdf$Class_4, area.all)
-      colnames(veg.df.i) <- c("veg", "area")
+      veg.df.i <- data.frame('veg' = clip.spdf$Class_4, 'area' = area.all)
       veg_sum_i <- aggregate(area ~ veg, data = veg.df.i, FUN = sum) ## sum areas by veg type
       veg_prop_i <- veg_sum_i$area / sum(veg_sum_i$area)
       veg_prop_i <- (t(veg_prop_i))
@@ -281,11 +275,12 @@ for (j in 1:3){
 ## restrict IDs to those in each season; 1 & 2 have all but 3 (winter) is missing some. Better way to do this?
 avail_3[[3]] <- avail_3[[3]][-c(4:6, 8:10),]
 
-######################
+############################################
 ## 6. Try compositional analysis ('compana' in package adehabitatHS)
 ##    a. 2nd order
-######################
+############################################
 
+## these are done BEFORE 0 use values are dealt with (below); retry after Step 7 (I.)
 compana_all_2 <- compana(use_data[[1]], avail_2[[1]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
 compana_sum_2 <- compana(use_data[[2]], avail_2[[2]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
 compana_win_2 <- compana(use_data[[3]], avail_2[[3]], test = 'randomisation', rnv = 0.000001, nrep = 500, alpha = 0.05)
@@ -295,9 +290,9 @@ compana_win_2 <- compana(use_data[[3]], avail_2[[3]], test = 'randomisation', rn
 barplot(eis$eig) ## what does this tell us?
 scatter(eis)
 
-######################
+############################################
 ##    b. 3rd order
-######################
+############################################
 
 ## check NA/0 values in use/avail data above before running
 
@@ -310,12 +305,12 @@ compana_win_3 <- compana(use_data[[3]], avail_list_3[[3]], test = 'randomisation
 barplot(eis$eig)
 scatter(eis)
 
-######################
+############################################
 ## 7. Do compositional analysis by hand (ala Erickson et al. 2001 matrices)
 ##    a. 2nd order
-######################
+############################################
 
-## ** Go back and check that NAs in 'use' are kept as 0/NA and not 1e-10 (Step 5, 'use_data' list). I'll replace them here after checking whether avail = 0.
+## ** Go back and check that NAs in 'use' are kept as 0/NA and not 1e-10 (line ~204). I'll replace them here after checking whether avail = 0.
 
 ## I) First, test for overall selection (Wilk's lambda / MANOVA) -- haven't been able to get manova to work
 
@@ -339,20 +334,6 @@ for (j in 1:3){
       use_avail_2[[j]] <- use_avail ## store
 }
 
-anova_2 <- aov(log_ratio ~ veg*id, data = use_avail_2[[1]])
-summary(manova_2)
-plot(manova_2)
-
-## how is it a MANOVA? what are the 2 dependent variables? use & avail?
-Y <- data.frame(use_avail_2[[1]][,3:4])
-A <- use_avail_2[[1]][,2] #veg
-B <- use_avail_2[[1]][,1] #id
-manova_2 <- manova(Y ~ A*B)
-manova_2 <- manova(cbind(used_prop, avail_prop) ~ veg*id, data = use_avail_2[[1]])
-summary(manova_2, test = 'Wilks')
-
-## PICK UP HERE
-
 wilks_results_2 <- list() ## store Wilk's lambda results by season
 for (j in 1:3){
       use_avail_j <- use_avail_2[[j]]
@@ -362,6 +343,19 @@ for (j in 1:3){
       wilks_results_2[[j]] <- wilks_j
 }
 ## lambda is 0 for overall and summer... that doesn't seem right
+
+## try (M)ANOVA for comparison
+anova_2 <- aov(log_ratio ~ veg*id, data = use_avail_2[[1]])
+summary(anova_2)
+plot(anova_2)
+
+## how is it a MANOVA? what are the 2 dependent variables? use & avail?
+Y <- data.frame(use_avail_2[[1]][,3:4])
+A <- use_avail_2[[1]][,2] #veg
+B <- use_avail_2[[1]][,1] #id
+manova_2 <- manova(Y ~ A*B)
+manova_2 <- manova(cbind(used_prop, avail_prop) ~ veg*id, data = use_avail_2[[1]])
+summary(manova_2, test = 'Wilks')
 
 ## II) If selection differs significantly from random, compute the difference between log-transformed 
 ## 'use_data' and log-transormed 'avail_2' (ala Marzluff et al. 2006)
@@ -397,19 +391,17 @@ for (j in 1:3){
 
 ## IV) t-tests on the differences in log-ratio between each veg category and the reference category,
 ##      then pairwise between all veg categories (see Erickson et al. 2001, pg 228)
+##    I removed 1-sample t-tests against the reference category using t.test(season[,k], mu = 0) because
+##    this is the exact same as doing a paired t-test with the reference category, because it is just a 
+##    column of 0s. Maybe double-check that this is theoretically correct but I get the exact same values
+##    of t and p from the above test and t.tes(season[,k], season[,ref], paired = TRUE)
 ttests_2 <- list()
 ref <- 4
 for (j in 1:3){
-    season <- d_matrix_2[[j]][,-ref] ## remove reference category
-      # first test between each category and the reference  
+      season <- d_matrix_2[[j]]
       pairwise_k <- NULL
         for (k in 1:length(season)){
-          ttest_k <- t.test(season[,k], mu = 0) ## 1-sample t-test against reference category
-          ttest_k_df <- data.frame(k, 0, ttest_k$estimate, ttest_k$conf.int[1], ttest_k$conf.int[2], ttest_k$p.value) ## 0 stands for reference category ('veg type 0')
-          colnames(ttest_k_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')  
-          pairwise_k <- bind_rows(pairwise_k, ttest_k_df) ## store
-        # then test pairwise between all categories 
-        pairwise_l  <- NULL
+          pairwise_l  <- NULL
           for (l in 1:length(season)){
               ttest_l <- t.test(season[,k], season[,l], paired = TRUE)
               ttest_l_df <- data.frame(k, l, ttest_l$estimate, ttest_l$conf.int[1], ttest_l$conf.int[2], ttest_l$p.value)
@@ -417,25 +409,39 @@ for (j in 1:3){
               pairwise_l <- bind_rows(pairwise_l, ttest_l_df) ## store
           }
           pairwise_k <- bind_rows(pairwise_k, pairwise_l)
-          veg_key <- data.frame((names(season)), 1:length(season))
-          colnames(veg_key) <- c('veg', 'veg_id')
-          ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category label
-          veg_key <- rbind(veg_key, ref_key)
-          pairwise_k$veg1 <- veg_key[match(pairwise_k$v1, veg_key$veg_id), 'veg'] 
-          pairwise_k$veg2 <- veg_key[match(pairwise_k$v2, veg_key$veg_id), 'veg']
-        }      
-      ttests_2[[i]] <- pairwise_k
+        }
+      veg_key <- data.frame('veg' = (names(season)), 'veg_id' = 1:length(season))
+      ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category label
+      veg_key <- rbind(veg_key, ref_key)
+      pairwise_k$veg1 <- veg_key[match(pairwise_k$v1, veg_key$veg_id), 'veg'] 
+      pairwise_k$veg2 <- veg_key[match(pairwise_k$v2, veg_key$veg_id), 'veg']
+      ttests_2[[j]] <- pairwise_k
 }
 
-## V) Create table of significance codes based on t-tests
-##    (see raccoon paper for example)
+## V) Create table of significance codes based on t-tests (see Beasley et al. 2007 for example)
+## There must be a more elegant way than all these brackets!
+## Would be nice to sort these in order based on the rankings in d_means_2[[j]]
 
-######################
-## 7. Do compositional analysis by hand (ala Erickson et al. 2001 matrices)
+ttest_matrix_2 <- list()
+for (j in 1:3){
+      tests_j <- ttests_2[[j]][,c(3, 6:8)]
+      tests_j$sig[tests_j$mean_diff > 0] <- '+'
+        tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '++'
+        tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '+++'
+        tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.001] <- '++++'
+      tests_j$sig[tests_j$mean_diff < 0] <- '-'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '--'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '---'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '----'
+      matrix_j <- cast(tests_j, veg1 ~ veg2, value = 'sig')
+      ttest_matrix_2[[j]] <- matrix_j
+}
+
+############################################
 ##    b. 3rd order
-######################
+############################################
 
-## ** Go back and check that NAs in 'use' are kept as 0/NA and not 1e-10 (Step 5, 'use_data' list). I'll replace them here after checking whether avail = 0.
+## ** Go back and check that NAs in 'use' are kept as 0/NA and not 1e-10 (line ~204). I'll replace them here after checking whether avail = 0.
 
 ## I) First, test for overall selection (Wilk's lambda / MANOVA) -- haven't been able to get manova to work
 
@@ -518,29 +524,153 @@ d_means_3
 ttests_3 <- list()
 ref <- 4
 for (j in 1:3){
-    season <- d_matrix_3[[j]][,-ref] ## remove reference category
-      # first test between each category and the reference  
+      season <- d_matrix_3[[j]]
       pairwise_k <- NULL
-        for (k in 1:length(season)){
-            ttest_k <- t.test(season[,k], mu = 0) ## 1-sample t-test against reference category
-            ttest_k_df <- data.frame(k, 0, ttest_k$estimate, ttest_k$conf.int[1], ttest_k$conf.int[2], ttest_k$p.value) ## 0 stands for reference category ('veg type 0')
-            colnames(ttest_k_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')  
-            pairwise_k <- bind_rows(pairwise_k, ttest_k_df) ## store
-        # then test pairwise between all categories 
-          pairwise_l  <- NULL
-            for (l in 1:length(season)){
-                ttest_l <- t.test(season[,k], season[,l], paired = TRUE)
-                ttest_l_df <- data.frame(k, l, ttest_l$estimate, ttest_l$conf.int[1], ttest_l$conf.int[2], ttest_l$p.value)
-                colnames(ttest_l_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')
-                pairwise_l <- bind_rows(pairwise_l, ttest_l_df) ## store
-            }
-            pairwise_k <- bind_rows(pairwise_k, pairwise_l)
-            veg_key <- data.frame((names(season)), 1:length(season))
-            colnames(veg_key) <- c('veg', 'veg_id')
-            ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category label
-            veg_key <- rbind(veg_key, ref_key)
-            pairwise_k$veg1 <- veg_key[match(pairwise_k$v1, veg_key$veg_id), 'veg'] 
-            pairwise_k$veg2 <- veg_key[match(pairwise_k$v2, veg_key$veg_id), 'veg']
-          }      
-      ttests_3[[i]] <- pairwise_k
+      for (k in 1:length(season)){
+        pairwise_l  <- NULL
+        for (l in 1:length(season)){
+          ttest_l <- t.test(season[,k], season[,l], paired = TRUE)
+          ttest_l_df <- data.frame(k, l, ttest_l$estimate, ttest_l$conf.int[1], ttest_l$conf.int[2], ttest_l$p.value)
+          colnames(ttest_l_df) <- c('v1', 'v2', 'mean_diff', 'lci_95', 'uci_95', 'p')
+          pairwise_l <- bind_rows(pairwise_l, ttest_l_df) ## store
+        }
+        pairwise_k <- bind_rows(pairwise_k, pairwise_l)
+      }
+      veg_key <- data.frame('veg' = (names(season)), 'veg_id' = 1:length(season))
+      ref_key <- data.frame('veg' = 'conifer forest', 'veg_id' = 0) ## can modify reference category label
+      veg_key <- rbind(veg_key, ref_key)
+      pairwise_k$veg1 <- veg_key[match(pairwise_k$v1, veg_key$veg_id), 'veg'] 
+      pairwise_k$veg2 <- veg_key[match(pairwise_k$v2, veg_key$veg_id), 'veg']
+      ttests_3[[j]] <- pairwise_k
 }
+
+## V) Create table of significance codes based on t-tests (see Beasley et al. 2007 for example)
+ttest_matrix_3 <- list()
+for (j in 1:3){
+      tests_j <- ttests_3[[j]][,c(3, 6:8)]
+      tests_j$sig[tests_j$mean_diff > 0] <- '+'
+        tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '++'
+        tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '+++'
+        tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.001] <- '++++'
+      tests_j$sig[tests_j$mean_diff < 0] <- '-'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '--'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '---'
+        tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '----'
+      matrix_j <- cast(tests_j, veg1 ~ veg2, value = 'sig')
+      ttest_matrix_3[[j]] <- matrix_j
+}
+
+############################################
+## 8. Boxplots
+## These are similar to Figure 5 in Millspaugh et al. 2006
+## - do I want horizontal or vertical? add '+ coord_flip()' 
+## - 'guide = FALSE' in scale_fill_manual turns off the legend (since I have axis labels)
+## - plot all on the same scale (i.e., same 'ylim' min and max values)? *
+##    * Make sure 'ylim' includes all min and max values! Otherwise it will mess up some of the boxplots 
+##      (e.g., it plotted fruit tree mean of -8.7 as positive 3)! Use min(summer_melt_2), etc., to check.
+############################################
+
+## assign colors to veg classes for plotting:
+veg_class <- c('beach', 'beachgrass.dune', 'coastal.scrub', 'conifer.forest', 'fruit.tree', 'marsh', 'meadow', 'pasture', 'swale')
+veg_colors <- c("khaki1", "khaki3", "khaki4", "darkolivegreen4", "coral1", "aquamarine", "yellow3", "darkolivegreen3", "darkseagreen3")
+colors <- data.frame(veg_class, veg_colors)
+colors$veg_colors <- as.character(colors$veg_colors)
+
+## create function to calculate mean, standard error, min, and max for the boxplots:
+min.mean.se.max <- function(x) {
+  v <- c(min(x), mean(x) - sd(x)/sqrt(length(x)), mean(x), mean(x) + sd(x)/sqrt(length(x)), max(x))
+  names(v) <- c("ymin", "lower", "middle", "upper", "ymax")
+  v
+}
+############################################
+##    a. 2nd order
+############################################
+summer_melt_2 <- melt(d_matrix_2[[2]]) ## message OK
+colnames(summer_melt_2) <- c('veg', 'd')
+summer_melt_2$season <- rep('sum', nrow(summer_melt_2))
+summer_melt_2$rank <- d_means_2[[2]][match(summer_melt_2$veg, d_means_2[[2]]$veg), 'rank'] ## where 3 is the 'rank' column in d_means_3[[2]]
+
+winter_melt_2 <- melt(d_matrix_2[[3]])
+colnames(winter_melt_2) <- c('veg', 'd')
+winter_melt_2$season <- rep('win', nrow(winter_melt_2))
+winter_melt_2$rank <- d_means_2[[3]][match(winter_melt_2$veg, d_means_2[[3]]$veg), 'rank']
+
+s2 <- ggplot(data = summer_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+        geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-23, 10) + ## *see note above
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+      theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 12, colour = 'black'),
+            axis.title = element_text(size = 12, colour = 'black'),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            panel.background = element_rect(fill = 'white')) +
+        geom_text(label ='*', aes(x = 1, y = -5), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 2, y = -5), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 3, y = -5), size = 8, colour = 'grey50')
+s2 
+
+w2 <- ggplot(data = winter_melt_2, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+        geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-23.0, 10.0) + ## *see note above
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+      theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 12, colour = 'black'),
+            axis.title = element_text(size = 12, colour = 'black'),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            panel.background = element_rect(fill = 'white')) +
+        geom_text(label ='*', aes(x = 1, y = -15), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 9, y = -15), size = 8, colour = 'grey50')
+w2
+
+############################################
+##    b. 3rd order
+############################################
+summer_melt_3 <- melt(d_matrix_3[[2]]) ## message OK
+colnames(summer_melt_3) <- c('veg', 'd')
+summer_melt_3$season <- rep('sum', nrow(summer_melt_3))
+summer_melt_3$rank <- d_means_3[[2]][match(summer_melt_3$veg, d_means_3[[2]]$veg), 'rank'] ## where 3 is the 'rank' column in d_means_3[[2]]
+
+winter_melt_3 <- melt(d_matrix_3[[3]])
+colnames(winter_melt_3) <- c('veg', 'd')
+winter_melt_3$season <- rep('win', nrow(winter_melt_3))
+winter_melt_3$rank <- d_means_3[[3]][match(winter_melt_3$veg, d_means_3[[3]]$veg), 'rank']
+
+s3 <- ggplot(data = summer_melt_3, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+        geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-5, 5) + ## *see note above
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+      theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 12, colour = 'black'),
+            axis.title = element_text(size = 12, colour = 'black'),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            panel.background = element_rect(fill = 'white')) +
+        geom_text(label ='*', aes(x = 1, y = -5), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 2, y = -5), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 3, y = -5), size = 8, colour = 'grey50')
+s3
+
+w3 <- ggplot(data = winter_melt_3, aes(x = reorder(veg, rank), y = d, fill = as.factor(veg))) +
+        stat_summary(fun.data = min.mean.se.max, geom = 'boxplot') +
+        geom_point(position = position_dodge(0.8), size = 2) +
+        scale_fill_manual(values = colors$veg_color, guide = FALSE) +
+        geom_hline(yintercept = 0, linetype = 'dashed') + ylim(-20, 5) + ## *see note above
+        xlab('Vegetation Type') + ylab('Differences in Log Ratio') +
+      theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 12, colour = 'black'),
+            axis.title = element_text(size = 12, colour = 'black'),
+            axis.line.x = element_line(size = 0.5, colour = 'black'),
+            axis.line.y = element_line(size = 0.5, colour = 'black'),
+            panel.background = element_rect(fill = 'white')) +
+        geom_text(label ='*', aes(x = 1, y = -15), size = 8, colour = 'grey50') +
+        geom_text(label ='*', aes(x = 9, y = -15), size = 8, colour = 'grey50')
+w3 
+
