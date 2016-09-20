@@ -4,6 +4,8 @@
 ## FINAL DATA OBJECTS:
 sel_means_2
 sel_means_3
+sel_ratios_2
+sel_ratios_3
 wilks_results_2
 wilks_results_3
 ranks_2
@@ -15,8 +17,7 @@ ttest_sig_3 #also exported as .csv
 s2_sr
 w2_sr
 s3_sr
-w3_sr #selection ratio floating bar plots with geom_points
-
+w3_sr #selection ratio floating bar plots (geomean w/ CI) with geom_points
 
 library(googlesheets)
 library(adehabitatHR)
@@ -30,6 +31,7 @@ library(rrcov)
 library(psych) # for geometric.mean
 library(ggplot2)
 library(lattice)
+library(gridExtra)
 
 # ----------------------------------------------------------------
 # 1. First, load porcupine location data & veg data
@@ -176,10 +178,11 @@ for (i in ids){
 } 
 
 ## cool figure! animal's entire home range and its use each season
-par(mfrow = c(1,3))
-image(ud.list$`15.12`$all, main = 'overall')
-image(ud.list$`15.12`$sum, main = 'summer')
-image(ud.list$`15.12`$win, main = 'winter')
+par(mfrow = c(1,3), oma = c(0,0,0,0), mar = c(0,0,0,0))
+image(ud.list$`15.12`$all)
+image(ud.list$`15.12`$sum)
+image(ud.list$`15.12`$win)
+text(0.1, 0.1, 'test')
 plot(ud.list$`16.18`$sum) ## 'plot' for grids, 'image' for gradient of UD
 
 # ----------------------------------------------------------------
@@ -690,7 +693,7 @@ write.csv(ttest_sig_3[[3]], 'csvs/ttests_ranks/091316/ttests_3rd_winter.csv')
 # ----------------------------------------------------------------
 
 ## assign colors to veg classes for plotting:
-veg_class <- c('beach', 'beachgrass dune', 'coastal scrub', 'conifer forest', 'fruit tree', 'marsh', 'meadow', 'pasture', 'swale')
+veg_class <- c('beach', 'dune', 'coastal scrub', 'conifer forest', 'fruit tree', 'marsh', 'meadow', 'pasture', 'swale')
 veg_colors <- c('khaki1', 'khaki3', 'khaki4', 'darkolivegreen4', 'coral1', 'aquamarine', 'yellow3', 'darkolivegreen3', 'darkseagreen3')
 colors <- data.frame(veg_class, veg_colors)
 colors$veg_colors <- as.character(colors$veg_colors)
@@ -716,30 +719,36 @@ s2_sr <- ggplot(data = sr_2s, aes(x = reorder(veg, rank), y = sel_ratio, fill = 
           geom_point(data = sr_2s_no, position = position_dodge(0.8), size = 2) +
           scale_fill_manual(values = colors$veg_color, guide = FALSE) +
           geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) +
-          xlab('Vegetation Type') + ylab('Selection Ratio') + #ylim(0, 5) + ## *see note above
+          xlab('Vegetation Class') + ylab(expression(Selection~Ratio~(w[i]))) + #ylim(0, 5) + ## *see note above
           theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
                 axis.text.y = element_text(size = 12, colour = 'black'),
                 axis.title = element_text(size = 12, colour = 'black'),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
-                panel.background = element_rect(fill = 'white')) +
-          geom_text(label ='*', aes(x = 6, y = 4), size = 8, colour = 'grey40')   
-s2_sr 
+                panel.background = element_rect(fill = 'white'),
+                plot.margin=unit(c(0.5,0.5,0.75,0.5), "cm")) +
+          geom_text(label ='*', aes(x = 6, y = 4), size = 8, colour = 'grey40') +
+          geom_text(label = 'A', aes(x = 9, y = 4.75), size = 8)
+s2_sr
 
 w2_sr <- ggplot(data = sr_2w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
           stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
           geom_point(data = sr_2w_no, position = position_dodge(0.8), size = 2) +
           scale_fill_manual(values = colors$veg_color, guide = FALSE) +
-          geom_hline(yintercept = 1, linetype = 'dashed') + #ylim(0, 5) + ## *see note above
-          xlab('Vegetation Type') + ylab('Selection Ratio') + 
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) +
+          xlab('Vegetation Class') + ylab(expression(Selection~Ratio~(w[i]))) + 
           theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
                 axis.text.y = element_text(size = 12, colour = 'black'),
                 axis.title = element_text(size = 12, colour = 'black'),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
-                panel.background = element_rect(fill = 'white')) +
-          geom_text(label ='*', aes(x = 3, y = 4.65), size = 8, colour = 'grey40')
+                panel.background = element_rect(fill = 'white'),
+                plot.margin=unit(c(0.75,0.5,0.5,0.5), "cm")) +
+          geom_text(label ='*', aes(x = 3, y = 4.65), size = 8, colour = 'grey40') +
+          geom_text(label = 'B', aes(x = 9, y = 4.7), size = 8)
 w2_sr 
+
+grid.arrange(s2_sr, w2_sr, ncol = 1) ## export at 600 wide x 700 high
 
 # ----------------------------------------------------------------
 ##    b. 3rd order
@@ -748,6 +757,8 @@ w2_sr
 sr_3s <- reshape(sel_ratios_3[[2]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[2]]))
 sr_3s$rank <- ranks_3[[2]][match(sr_3s$veg, ranks_3[[2]]$veg), 'pos_r']
 max(sr_3s$sel_ratio[is.finite(sr_3s$sel_ratio)]) #don't need to remove outliers
+sr_3s_no <- sr_3s[sr_3s$sel_ratio < 6,] ## remove outlier points
+sr_3s_no <- sr_3s_no[is.finite(sr_3s_no$sel_ratio),] ## all the NAs seem to mess up ggplot order
 
 sr_3w <- reshape(sel_ratios_3[[3]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[3]]))
 sr_3w$rank <- ranks_3[[3]][match(sr_3w$veg, ranks_3[[3]]$veg), 'pos_r']
@@ -755,31 +766,38 @@ max(sr_3w$sel_ratio[is.finite(sr_3w$sel_ratio)]) #don't need to remove outliers
 
 s3_sr <- ggplot(data = sr_3s, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
           stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
-          geom_point(position = position_dodge(0.8), size = 2) +
+          geom_point(data = sr_3s_no, aes(x = reorder(veg, rank), y = sel_ratio), position = position_dodge(0.8), size = 2) +
           scale_fill_manual(values = colors$veg_color, guide = FALSE) +
-          geom_hline(yintercept = 1, linetype = 'dashed') + #ylim(-5, 5) + ## *see note above
-          xlab('Vegetation Type') + ylab('Selection Ratio') +
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + 
+          xlab('Vegetation Class') + ylab(expression(Selection~Ratio~(w[i]))) +
           theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
                 axis.text.y = element_text(size = 12, colour = 'black'),
                 axis.title = element_text(size = 12, colour = 'black'),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
-                panel.background = element_rect(fill = 'white'))
+                panel.background = element_rect(fill = 'white'),
+                plot.margin=unit(c(0.5,0.5,0.75,0.5), "cm")) +
+          geom_text(label ='*', aes(x = 2, y = 4.5), size = 8, colour = 'grey40') +
+          geom_text(label = 'A', aes(x = 9, y = 4.7), size = 8) 
 s3_sr 
 
 w3_sr <- ggplot(data = sr_3w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
           stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
           geom_point(position = position_dodge(0.8), size = 2) +
           scale_fill_manual(values = colors$veg_color, guide = FALSE) +
-          geom_hline(yintercept = 1, linetype = 'dashed') + #ylim(0, 5) + ## *see note above
-          xlab('Vegetation Type') + ylab('Log Ratio') +
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + 
+          xlab('Vegetation Type') + ylab(expression(Selection~Ratio~(w[i]))) +
           theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
                 axis.text.y = element_text(size = 12, colour = 'black'),
                 axis.title = element_text(size = 12, colour = 'black'),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
-                panel.background = element_rect(fill = 'white'))
-w3_sr 
+                panel.background = element_rect(fill = 'white'),
+                plot.margin=unit(c(0.75,0.5,0.5,0.5), "cm")) +
+          geom_text(label = 'B', aes(x = 9, y = 4.5), size = 8)  
+w3_sr   
+
+grid.arrange(s3_sr, w3_sr, ncol = 1) ## export at 600 wide x 700 high
 
 # ----------------------------------------------------------------
 ## try just bar plots of sel_means with CI
@@ -877,24 +895,27 @@ win.sp <- SpatialPointsDataFrame(data.frame(win.locs$utm_e, win.locs$utm_n),
 ## just summer points, etc., and can change the title based on the purpose and audience
 
 ids <- unique(porc.locs$id)
-#i <- ids[12]
+i <- ids[12]
 #for (i in ids){
       veg.i <- veg_home_ranges[[i]]
       veg.i$colors <- colors[match(veg.i$Class_4, colors$veg_class), 'veg_colors']
       mypath <- file.path('figures', 'kdes_with_veg', '081316', paste(i, '_veg_95kde', '.png', sep = ''))
       png(file = mypath)
       mytitle = paste('Home range of', i, sep = ' ')
-      par(mar = c(2, 0.2, 4, 6), xpd = TRUE) ## margins: bottom, left, top, right
+      par(mfrow = c(1, 2), oma = c(0, 0, 0, 12), mar = c(2, 0.2, 4, 0.9), xpd = NA) ## margins: bottom, left, top, right
     proj4string(veg.ext) <- proj4string(outer_cont95[[i]])
     clip.cont <- gIntersection(veg.ext, outer_cont95[[i]], byid = TRUE, drop_lower_td = TRUE)
-    plot(clip.cont, main = mytitle)    
+    plot(ud.list$`15.12`$all)
+    plot(clip.cont)    
       for (v in veg_class){     ## veg_class defined above
           plot(veg.i[veg.i@data$Class_4 == v,], add = TRUE, col = veg.i@data$colors[veg.i@data$Class_4 == v])
       }
     scalebar(500, xy = click(), type = 'bar', divs = 4, below = 'meters') ## click to place (magic!)
       leg.txt <- sort(unique(veg$Class_4))
       leg.col <- colors$veg_colors
-      legend('topright', inset = c(-0.1,-0.1), legend = leg.txt, pch = 15, col = leg.col, cex = 1.2)
+      legend('topright', inset = c(-0.75,0.15), legend = leg.txt, pch = 15, col = leg.col, cex = 1.2)
+      text(2, 4, 'A', font = 2, cex = 1.3)
+      
       legend('bottomright', inset=c(-0.1,0.1), legend = c('summer locations', 'winter locations'), pch = 18, col = c('red', 'darkblue'), cex = 1.2)
     points(sum.sp[sum.sp@data$id == i,], pch = 18, cex = 1.4, col = 'red')
     points(win.sp[win.sp@data$id == i,], pch = 18, cex = 1.4, col = 'darkblue')
@@ -909,7 +930,7 @@ ids <- unique(porc.locs$id)
 ##      b. Veg map of study area
 # ----------------------------------------------------------------
 
-par(mar = c(2, 0.2, 4, 6), xpd = TRUE) ## margins: bottom, left, top, right
+par(mfrow = c(1,1), mar = c(2, 0.2, 4, 6), xpd = TRUE) ## margins: bottom, left, top, right
 veg$colors <- colors[match(veg$Class_4, colors$veg_class), 'veg_colors']
 plot(veg)
 for (v in veg_class){
@@ -927,9 +948,14 @@ plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="black"
 plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="red")
 
 # ----------------------------------------------------------------
-##      c. Lattice plots showing 3-D UD grid 
+##      c. Wireframe plots showing 3-D UD grid 
 # ----------------------------------------------------------------
- 
+
+height.i <- heights[heights$id == i,]
+wireframe(height ~ x * y, data = heights.i, drape = TRUE, xlab = 'Latitude', ylab = 'Longitude', zlab = 'UD \nheight')
+
+
+plot(ud.list$`15.12`$win)
 
 ####################################################################################
 ####################################################################################
