@@ -1,0 +1,10 @@
+,geo.mean,lci,uci,rank
+meadow,1.76,1.08,2.88,0
+swale,1.63,1.28,2.08,1
+marsh,1.00,0.60,1.66,2
+coastal scrub,0.67,0.47,0.95,3
+conifer forest,0.60,0.31,1.14,4
+fruit,0.04,0.00,0.30,5
+dune,0.00,0.00,0.01,6
+pasture,0.00,0.00,0.01,7
+beach,0.00,0.00,0.00,8

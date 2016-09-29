@@ -1,0 +1,10 @@
+,veg1,meadow,swale,marsh,coastal scrub,conifer forest,fruit tree,beachgrass dune,pasture,beach,rank
+7,meadow,NA,–,–,– – –,–,– – – –,– – – –,– – – –,– – – –,0
+9,swale,+,NA,–,– – –,–,– – – –,– – – –,– – – –,– – – –,1
+6,marsh,+,+,NA,–,–,– – – –,– – – –,– – – –,– – – –,2
+3,coastal scrub,+++,+++,+,NA,–,– – – –,– – – –,– – –,– – – –,3
+4,conifer forest,+,+,+,+,NA,– – – –,– – –,– – – –,– – – –,4
+5,fruit tree,++++,++++,++++,++++,++++,NA,–,–,– –,5
+2,beachgrass dune,++++,++++,++++,++++,+++,+,NA,–,–,6
+8,pasture,++++,++++,++++,+++,++++,+,+,NA,–,7
+1,beach,++++,++++,++++,++++,++++,++,+,+,NA,8
