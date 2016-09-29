@@ -286,6 +286,41 @@ mean.s.ff <- mean(overlap.s.nonzero$X1[overlap.s.nonzero$sex1 == 'f' & overlap.s
 mean.s.mm <- mean(overlap.s.nonzero$X1[overlap.s.nonzero$sex1 == 'm' & overlap.s.nonzero$sex2 == 'm'])
 mean.s.fm <- mean(overlap.s.nonzero$X1[overlap.s.nonzero$sex1 != overlap.s.nonzero$sex2])
 
+## Now look at overlap between core areas only (50% KDEs)
+overlap50.sum <- kerneloverlap(sum.sp, method = 'UDOI', percent = 50, conditional = TRUE, 
+                             h = 60, grid = 535.7288, extent = 1) ## 535.7288 is 'g' from above code using 'sum.locs'
+overlap50.win <- kerneloverlap(win.sp, method = 'UDOI', percent = 50, conditional = TRUE, 
+                             h = 60, grid = 176.9492, extent = 1) ## 535.7288 is 'g' from above code using 'win.locs'
+
+## can't do means on these because there are lots of redundancies (will inflate n)
+sum.melt50 <- melt(overlap50.sum, varnames = c('row', 'col'), na.rm = TRUE)
+sum.unique50 <- unique(t(apply(sum.melt50, 1, sort)))
+overlap.s50 <- sum.unique50[(sum.unique50[,2] != sum.unique50[,3]),] ## good; 136 pair combinations (17 animals)
+overlap.s.nonzero50 <- data.frame(overlap.s50[(overlap.s50[,1] != 0),])
+
+win.melt50 <- melt(overlap50.win, varnames = c('row', 'col'), na.rm = TRUE)
+win.unique50 <- unique(t(apply(win.melt50, 1, sort)))
+overlap.w50 <- win.unique50[(win.unique50[,2] != win.unique50[,3]),] ## good; 55 pair combinations (11 animals)
+overlap.w.nonzero50 <-   data.frame(overlap.w50[(overlap.w50[,1] != 0),])
+
+overlap.means50 <- c(mean(overlap.s.nonzero50[,1]), mean(overlap.w.nonzero50[,1]))
+overlap.se50 <- c(sd(overlap.s.nonzero50[,1])/sqrt(nrow(overlap.s.nonzero50)), sd(overlap.w.nonzero50[,1])/sqrt(nrow(overlap.w.nonzero50))) ## or should sample sizes be 17 and 7?
+comparisons <- c('summer', 'winter')
+overlaps50 <- data.frame('comp' = comparisons, 'mean' = overlap.means50, 'se' = overlap.se50)
+
+## add m/f
+sex <- c('f', 'f', 'm', 'm', 'f', 'm', 'f', 'f', 'f', 'f', 'm', 'f', 'f', 'm', 'm', 'f', 'm', 'm', 'm')
+sex_key <- data.frame('id' = as.numeric(rownames(overlap.sum)), 'sex' = sex) ## as.numeric to match with below... otherwise get '15.1'... figure this out
+
+overlap.s.nonzero50$sex1 <- sex_key[match(overlap.s.nonzero50$X2, sex_key$id), 'sex'] 
+overlap.s.nonzero50$sex2 <- sex_key[match(overlap.s.nonzero50$X3, sex_key$id), 'sex'] 
+overlap.w.nonzero50$sex1 <- sex_key[match(overlap.w.nonzero50$X2, sex_key$id), 'sex']
+overlap.w.nonzero50$sex2 <- sex_key[match(overlap.w.nonzero50$X3, sex_key$id), 'sex']
+
+mean.s.ff50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 == 'f' & overlap.s.nonzero50$sex2 == 'f'])
+mean.s.mm50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 == 'm' & overlap.s.nonzero50$sex2 == 'm'])
+mean.s.fm50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 != overlap.s.nonzero50$sex2])
+
 
 ### ok, 'overlaps' tells us means. so more overlapped during winter than summer...?
 ## how many overlapped at all? what was the highest/lowest overlap between a pair?
@@ -378,31 +413,58 @@ write.csv(hr.summary, 'csvs/homeranges091016.csv')
 ## mean and SE of both males/females (b/c not computed automatically in aggregate)
 all.sum.50kde <- hr.all[hr.all$percent == 50 & hr.all$method == 'kde' & hr.all$season == 'sum',]$area
   mean(all.sum.50kde)
-  sd(all.sum.50kde) / length(all.sum.50kde)
+  (n <- length(all.sum.50kde))
+  sd(all.sum.50kde) / n
 all.win.50kde <- hr.all[hr.all$percent == 50 & hr.all$method == 'kde' & hr.all$season == 'win',]$area
   mean(all.win.50kde)
-  sd(all.win.50kde) / length(all.win.50kde)
+  (n <- length(all.win.50kde))
+  sd(all.win.50kde) / n
 all.sum.90kde <- hr.all[hr.all$percent == 90 & hr.all$method == 'kde' & hr.all$season == 'sum',]$area
   mean(all.sum.90kde)
-  sd(all.sum.90kde) / length(all.sum.90kde)
+  (n <- length(all.sum.90kde))
+  sd(all.sum.90kde) / n
 all.win.90kde <- hr.all[hr.all$percent == 90 & hr.all$method == 'kde' & hr.all$season == 'win',]$area
   mean(all.win.90kde)
-  sd(all.win.90kde) / length(all.win.90kde)
+  (n <- length(all.win.90kde))
+  sd(all.win.90kde) / n
 all.sum.95kde <- hr.all[hr.all$percent == 95 & hr.all$method == 'kde' & hr.all$season == 'sum',]$area
   mean(all.sum.95kde)
-  sd(all.sum.95kde) / length(all.sum.95kde)
+  (n <- length(all.sum.95kde))
+  sd(all.sum.95kde) / n
 all.win.95kde <- hr.all[hr.all$percent == 95 & hr.all$method == 'kde' & hr.all$season == 'win',]$area
   mean(all.win.95kde)
-  sd(all.win.95kde) / length(all.win.95kde)
+  (n <- length(all.win.95kde))
+  sd(all.win.95kde) / n
 all.sum.95mcp <- hr.all[hr.all$percent == 95 & hr.all$method == 'mcp' & hr.all$season == 'sum',]$area
   mean(all.sum.95mcp)
-  sd(all.sum.95mcp) / length(all.sum.95mcp)
+  (n <- length(all.sum.95mcp))
+  sd(all.sum.95mcp) / n
 all.win.95mcp <- hr.all[hr.all$percent == 95 & hr.all$method == 'mcp' & hr.all$season == 'win',]$area
   mean(all.win.95mcp)
-  sd(all.win.95mcp) / length(all.win.95mcp)
+  (n <- length(all.win.95mcp))
+  sd(all.win.95mcp) / n
   
+## both seasons, both sexes (not in aggregate)
+all.all.50kde <- hr.all[hr.all$percent == 50 & hr.all$method == 'kde' & hr.all$season == 'all',]$area
+  mean(all.all.50kde)
+  (n <- length(all.all.50kde))
+  sd(all.all.50kde) / n 
+all.all.90kde <- hr.all[hr.all$percent == 90 & hr.all$method == 'kde' & hr.all$season == 'all',]$area
+  mean(all.all.90kde)
+  (n <- length(all.all.90kde))
+  sd(all.all.90kde) / n 
+all.all.95kde <- hr.all[hr.all$percent == 95 & hr.all$method == 'kde' & hr.all$season == 'all',]$area
+  mean(all.all.95kde)
+  (n <- length(all.all.95kde))
+  sd(all.all.95kde) / n
+all.all.95mcp <- hr.all[hr.all$percent == 95 & hr.all$method == 'mcp' & hr.all$season == 'all',]$area
+  mean(all.all.95mcp)
+  (n <- length(all.all.95mcp))
+  sd(all.all.95mcp) / n 
+
 ## now do this all over again using ONLY animals with both summer and winter home ranges
 ## b/c these are the ones used in paired t-tests below
+## (Just out of curiousity. I report the above values--all porcupines--in results.)
 
 hr.all.mod <- subset(hr.all, id %in% c('15.01', '15.02', '15.03', '15.07', '15.11', '15.12', '15.13', '15.14', '16.15', '16.17', '16.18'), drop = TRUE)
 hr.all.mod$id <- droplevels(hr.all.mod$id)
@@ -491,6 +553,11 @@ t.test(s.f$area, s.m$area, paired = FALSE) # n = 10 / 6
 ## winter female vs. male
 t.test(w.f$area, w.m$area, paired = FALSE) # n = 6 / 5
 
+## overall female vs. male
+all.m <- hr.all[hr.all$sex == 'm' & hr.all$season == 'all' & hr.all$method == 'kde' & hr.all$percent == 95,]
+all.f <- hr.all[hr.all$sex == 'f' & hr.all$season == 'all' & hr.all$method == 'kde' & hr.all$percent == 95,]
+t.test(all.f$area, all.m$area, paired = FALSE) # n = 8 / 10
+
 ## both summer vs. winter
 s.both <- hr.all[hr.all$season == 'sum' & hr.all$method == 'kde' & hr.all$percent == 95,]
 w.both <- hr.all[hr.all$season == 'win' & hr.all$method == 'kde' & hr.all$percent == 95,]
@@ -525,7 +592,7 @@ arrows(barCenters, hr.summary$mean - hr.summary$se * 2, barCenters, hr.summary$m
 
 # ---------------------------------------------------------------
 
-## home range size vs. capture weight (using "porc.wts" from "season-weight.R" script)
+## home range size vs. body mass (using "porc.wts" from "season-weight.R" script)
 ## (overall HR vs. maximum weight attained)
 
 max.wts <- NULL
@@ -554,9 +621,9 @@ overall.hr.f <- overall.hr[overall.hr$sex == 'f',]
 overall.hr.m <- overall.hr[overall.hr$sex == 'm',]
 
 m2 <- lm(area ~ max.wt, data = overall.hr.f)
-  summary(m2) ## moderate correlation btwn HR and body mass (r2 = 0.39)
+  summary(m2) ## no correlation btwn HR and body mass (r2 = 0.12)
 m3 <- lm(area ~ max.wt, data = overall.hr.m)
-  summary(m3) ## moderate correlation btwn HR and body mass (r2 = 0.39)
+  summary(m3) ## strong correlation btwn HR and body mass (r2 = 0.94)
 
 par(mfrow = c(2,1))
 plot(area ~ max.wt, data = overall.hr.f, ylab = expression(paste('Home range area (km' ^'2', ')')), xlab = 'Body mass (kg)',
@@ -570,3 +637,35 @@ plot(area ~ max.wt, data = overall.hr.m, ylab = expression(paste('Home range are
   text(10.5, 0.1, expression(paste('r' ^'2', ' = 0.94')))
   text(5.5, 0.75, 'B', font = 2, cex = 1.3)
   
+## what about a correlation between HR and body mass for summer vs. winter?
+## would make most sense to do this during breeding season (like Sweitzer 2003) but I don't have enough data
+sum.hr.f <- hr.all[hr.all$sex == 'f' & hr.all$percent == 95 & hr.all$season == 'sum' & hr.all$method == 'kde',]
+  sum.hr.f$max.wt <- max.wts[match(sum.hr.f$id, max.wts$i), 'max.i']
+sum.hr.m <- hr.all[hr.all$sex == 'm' & hr.all$percent == 95 & hr.all$season == 'sum' & hr.all$method == 'kde',]
+  sum.hr.m$max.wt <- max.wts[match(sum.hr.m$id, max.wts$i), 'max.i']
+
+m4 <- lm(area ~ max.wt, data = sum.hr.f)
+  summary(m4) ## no correlation btwn HR and body mass (r2 = 0.10)
+m5 <- lm(area ~ max.wt, data = sum.hr.m)
+  summary(m5) ## strong correlation btwn HR and body mass (r2 = 0.85, p = 0.001)
+  
+win.hr.f <- hr.all[hr.all$sex == 'f' & hr.all$percent == 95 & hr.all$season == 'win' & hr.all$method == 'kde',]
+  win.hr.f$max.wt <- max.wts[match(win.hr.f$id, max.wts$i), 'max.i']
+win.hr.m <- hr.all[hr.all$sex == 'm' & hr.all$percent == 95 & hr.all$season == 'win' & hr.all$method == 'kde',]
+  win.hr.m$max.wt <- max.wts[match(win.hr.m$id, max.wts$i), 'max.i']
+  
+m6 <- lm(area ~ max.wt, data = win.hr.f)
+  summary(m6) ## no correlation btwn HR and body mass (r2 = 0.03)
+m7 <- lm(area ~ max.wt, data = win.hr.m)
+  summary(m7) ## strong correlation btwn HR and body mass (r2 = 0.89, p = 0.016)
+  
+  
+   
+## 9/20/16 for discussion, compute % decrease in HR from summer to winter, ala Roze (2009):
+(m.mcp <- 1 - (0.075 / 0.125)) ## males, 95% mcp, winter / summer
+(f.mcp <- 1 - (0.063 / 0.232))
+(a.mcp <- 1 - (0.069 / 0.185)) ## all
+
+(m.kde <- 1 - (0.219 / 0.282))
+(f.kde <- 1 - (0.229 / 0.363))
+(a.kde <- 1 - (0.224 / 0.327))

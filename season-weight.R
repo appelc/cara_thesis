@@ -70,7 +70,6 @@ ggplot(data=porc.wts, aes(x = date, y = kg, group = id)) +
 
 ## I tried 'geom_rect' to shade the area between vertical lines (winter) but it didn't work
 
-
 ##########################################################
 ### (1b) descriptive stats
 ##########################################################
@@ -124,26 +123,9 @@ abline(lm1)
 ### (3) t-test for significance between seasonal weights
 ##########################################################
 
-## keep only porcs 15.01 - 15.14 (b/c no summer data on others)
-## (maybe I could actually keep them all until the end...)
-porc_2015 <- grepl('^15', porc.wts$id) ## ask which ones start with "15" 
-porc_2015 # (TRUE/FALSE)
-porc.wts15 <- porc.wts[porc_2015,] ## then only keep the rows with TRUE
-porc.wts15 <- droplevels(porc.wts15)
-
-## subset m/f again for animals captured in 2015
-m.wts15 <- porc.wts15[porc.wts15$sex == "M",]
-m.wts15 <- droplevels(m.wts15)
-f.wts15 <- porc.wts15[porc.wts15$sex == "F",]
-f.wts15 <- droplevels(f.wts15)
-
 ##### FROM HERE FORWARD, NEED TO SELECT A CUTOFF DATE
 
 ## separate summer/winter weights
-## could do this all iteratively again, I suppose
-#s.wts <- porc.wts15[porc.wts15$date < as.Date("2015-11-01") | porc.wts15,]
-#w.wts <- porc.wts15[porc.wts15$date >= as.Date("2015-11-01"),]
-
 s.wts <- porc.wts[porc.wts$date < as.Date('2015-11-01') | porc.wts$date > as.Date('2016-02-29'),]
 w.wts <- porc.wts[porc.wts$date > as.Date('2015-10-31') & porc.wts$date < as.Date('2016-03-01'),]
 
@@ -160,7 +142,6 @@ for(i in ids){
 }
 
 ## if multiple winter weights, need to take the average
-## several do have multiple winter weights
 ids <- unique(w.wts$id)
 w.avgs <- NULL
 
@@ -191,15 +172,53 @@ t.test(avg.wts.f$s_avg, avg.wts.f$w_avg, paired = TRUE)
 avg.wts.m <- avg.wts[avg.wts$sex == 'M',]
 t.test(avg.wts.m$s_avg, avg.wts.m$w_avg, paired = TRUE)
 
-## 
-mean_s <- mean(avg.wts$s_avg)
-mean_s # 8.497 kg ## why do I get a different answer now? 8.192 kg (05/05/16)
-mean_w <- mean(avg.wts$w_avg)
-mean_w # 7.79 kg ## 7.403 kg (05/05/16)
+## means:
+(mean_s <- mean(avg.wts$s_avg)) # 8.06 kg
+(mean_w <- mean(avg.wts$w_avg)) # 7.41 kg
 means <- cbind(mean_s, mean_w)
 
+## barplot:
 par(mfrow=c(1,1))
 barplot(means, ylab="Body mass (kg)")
 write.csv(avg.wts, 'csvs/avg.wts.091016.csv')
 
+## how much did they lose?
+(1 - (mean_w / mean_s)) * 100 # overall: 8.22%
+(1 - (mean(avg.wts.f$w_avg)) / mean(avg.wts.f$s_avg)) * 100 # females: 6.39%
 
+(1 - (mean(avg.wts.m$w_avg)) / mean(avg.wts.m$s_avg)) * 100 # males: 9.99%
+
+avg.wts$pct_dec <- (1-(avg.wts$w_avg / avg.wts$s_avg))*100
+
+## what about max wt difference for each porcupine (not just between avg summer/winter)
+ids <- unique(porc.wts$id)
+wt.diff <- NULL
+
+for (i in ids){
+      porc.wts.i <- porc.wts[porc.wts$id == i,]    
+      max_diff <- max(porc.wts.i$kg) - min(porc.wts.i$kg)  
+      diff_pct <- (1-(min(porc.wts.i$kg)/max(porc.wts.i$kg)))*100
+      month_max <- porc.wts.i$month[which.max(porc.wts.i$kg)]
+      month_min <- porc.wts.i$month[which.min(porc.wts.i$kg)]
+      wt.diff.i <- data.frame(i, month_max, month_min, max_diff, diff_pct)
+      wt.diff <- rbind(wt.diff, wt.diff.i)
+}
+
+wt.diff <- wt.diff[wt.diff$max_diff != 0,] ## get rid of animals with only 1 weight
+wt.diff <- wt.diff[-c(16:17),] ## and those whose weights were in the same season
+wt.diff$sex <- c('f', 'f', 'm', 'm', 'f', 'f', 'f', 'f', 'm', 'f', 'f', 'm', 'm', 'f', 'm')
+
+## the greatest percent loss was 37.98% for 15.11, between June and January (when he died)
+## then 28.70 for 15.14 (also June-January), 19.46% for 15.03 (June-March), 16.50% for 15.12
+## (July-December), 12.33 for 15.01 (May-January), etc.
+
+mean(wt.diff$diff_pct[wt.diff$sex == 'f']) ## mean weight diff % for females
+  sd(wt.diff$diff_pct[wt.diff$sex == 'f']) / length(wt.diff$diff_pct[wt.diff$sex == 'f'])
+mean(wt.diff$diff_pct[wt.diff$sex == 'm']) ## mean weight diff % for males
+  sd(wt.diff$diff_pct[wt.diff$sex == 'm']) / length(wt.diff$diff_pct[wt.diff$sex == 'm'])
+
+## females reached their max weights in May, Oct, June, June, June, October, July, July, June
+## females reached their min weights in Jan, May, Jan, Oct, Oct, June, Dec, Jan, Feb
+
+## males reached their max weights in June, June, June, June, April, April
+## males reached their min weights in March, Nov, Jan, Jan, Feb
