@@ -115,8 +115,9 @@ for (i in ids){
 }
 
 # ---------------------------------------------------------------
-## try overall home range for all animals combined
-## should remove outliers (15.04 dispersal, 15.06 exploratory)
+## 3. Try overall home range for all animals combined to outline study area
+##    - should remove outliers (15.04 dispersal, 15.06 exploratory)
+# ---------------------------------------------------------------
 
 locs.all <- porc.locs ## to create SPDF
 locs.all$id2 <- rep('all', nrow(locs.all))
@@ -182,16 +183,14 @@ max.dist ## for each animal
 max.dist <- max.dist[-c(4, 6),] ## remove 15.04 and 15.06
 max <- max(max.dist$max) ## overall (in meters)
 
-# Now we get to buffer all the points. 
-
+# Now buffer all the points
 study.area <- gBuffer(sp.all.clip, width = max)
 plot(study.area)
 
 # ---------------------------------------------------------------
-## 3. 
+## 4. Organize list of KDE areas
 # ---------------------------------------------------------------
 
-## manipulate list of KDE areas
 ids <- names(kde.areas)
 kde.all <- NULL
 for(i in ids){
@@ -210,7 +209,9 @@ for(i in ids){
 }
 
 # ---------------------------------------------------------------
-## manipulate list of overlap metrices
+## 5. Manipulate list of overlap metrices & do comparisons
+# ---------------------------------------------------------------
+
 ids <- names(overlap)
 overlap.all <- NULL
 for(i in ids){
@@ -321,13 +322,14 @@ mean.s.ff50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 == 'f' & ove
 mean.s.mm50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 == 'm' & overlap.s.nonzero50$sex2 == 'm'])
 mean.s.fm50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 != overlap.s.nonzero50$sex2])
 
-
 ### ok, 'overlaps' tells us means. so more overlapped during winter than summer...?
 ## how many overlapped at all? what was the highest/lowest overlap between a pair?
 ## next do males / females
 
 # ---------------------------------------------------------------
-# quick plot:
+## 6. Quick plot of home ranges
+# ---------------------------------------------------------------
+
 f <- c('15.01', '15.02', '15.05', '15.07', '15.08', '15.09', '15.10', '15.12', '15.13', '16.16', '16.17')
 m <- c('15.03', '15.04', '15.06', '15.11', '15.14', '16.15', '16.18')
 plot(veg.ext)
@@ -343,9 +345,8 @@ for (i in names(contours)){
     }
 }
 
-
 # ---------------------------------------------------------------
-## Calculate MCP and export as CSV
+## 7. Calculate MCP and export as CSV
 # ---------------------------------------------------------------
 
 ## all points
@@ -391,7 +392,7 @@ write.csv(mcp.win95.df, "csvs/mcp_win_95_091016.csv")
 mcp.all <- rbind(mcp.all95.df, mcp.sum95.df, mcp.win95.df)
 
 # ---------------------------------------------------------------
-### Now do analysis
+## 8. Now do analysis
 # ---------------------------------------------------------------
 
 hr.all <- rbind(kde.all, mcp.all) # combine MCP and KDE
@@ -477,7 +478,7 @@ hr.mod.summary$names <- c(paste(hr.mod.summary$sex, hr.mod.summary$season, sep =
 write.csv(hr.mod.summary, 'csvs/homeranges_mod091016.csv')
 
 # ---------------------------------------------------------------
-## now make plots
+## 9. Now make plots
 # ---------------------------------------------------------------
 
 ## first, subset only 95% KDEs
@@ -513,7 +514,7 @@ segments(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE,
 arrows(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE, lwd = 1.5, angle = 90, code = 3, length = 0.05)
 
 # ---------------------------------------------------------------
-## t-tests: use 95% KDE for now
+## 10. t-tests: use 95% KDE for now
 # ---------------------------------------------------------------
 
 ##### female summer vs. winter
@@ -590,10 +591,12 @@ text(x = barCenters, y = par("usr")[3] - 0.03, srt = 45, adj = 1, labels = hr.su
 segments(barCenters, hr.summary$mean - hr.summary$se, barCenters, hr.summary$mean + hr.summary$se, lwd = 1.5)
 arrows(barCenters, hr.summary$mean - hr.summary$se * 2, barCenters, hr.summary$mean + hr.summary$se * 2, lwd = 1.5, angle = 90, code = 3, length = 0.05)
 
-# ---------------------------------------------------------------
 
-## home range size vs. body mass (using "porc.wts" from "season-weight.R" script)
-## (overall HR vs. maximum weight attained)
+# ---------------------------------------------------------------
+## 11. Linear regression: home range size vs. body mass 
+##    - using "porc.wts" from "season-weight.R" script
+##    -(overall HR vs. maximum weight attained)
+# ---------------------------------------------------------------
 
 max.wts <- NULL
 for (i in levels(porc.wts$id)){
@@ -601,16 +604,22 @@ for (i in levels(porc.wts$id)){
       max.i <- max(wts.i$kg)
       max.wts <- rbind(max.wts, data.frame(i, max.i))      
 }
-max.wts$i <- as.character(max.wts$i) ## fix this earlier...
+max.wts$i <- as.character(max.wts$i) ## fix this earlier; shouldn't need to...
 max.wts$i[max.wts$i == '15.1'] <- '15.10'
 max.wts$i[max.wts$i == '16.2'] <- '16.20'
 max.wts$i <- as.factor(max.wts$i)
 
+## use overall 95% KDE
 overall.hr <- hr.all[hr.all$percent == 95 & hr.all$season == 'all' & hr.all$method == 'kde',]
 overall.hr$max.wt <- max.wts[match(overall.hr$id, max.wts$i), 'max.i']
 
+## get sample sizes (# of relocations used for HR estimation)
+n_locs <- stack(table(porc.locs$id))
+overall.hr$n_locs <- n_locs[match(overall.hr$id, n_locs$ind), 'values']
+
+## linear regression
 m1 <- lm(area ~ max.wt, data = overall.hr)
-summary(m1) ## moderate correlation btwn HR and body mass (r2 = 0.39)
+summary(m1) ## moderate correlation btwn HR and body mass (r2 = 0.39, P = 0.005)
 
 par(mar = c(5, 5, 2, 3), xpd = FALSE) #bottom, left, top, right (xpd=FALSE keeps abline inside plot area)
 plot(area ~ max.wt, data = overall.hr, ylab = expression(paste('Home range area (km' ^'2', ')')), xlab = 'Body mass (kg)')
@@ -621,9 +630,9 @@ overall.hr.f <- overall.hr[overall.hr$sex == 'f',]
 overall.hr.m <- overall.hr[overall.hr$sex == 'm',]
 
 m2 <- lm(area ~ max.wt, data = overall.hr.f)
-  summary(m2) ## no correlation btwn HR and body mass (r2 = 0.12)
+  summary(m2) ## no correlation btwn HR and body mass (r2 = 0.12, P = 0.325)
 m3 <- lm(area ~ max.wt, data = overall.hr.m)
-  summary(m3) ## strong correlation btwn HR and body mass (r2 = 0.94)
+  summary(m3) ## strong correlation btwn HR and body mass (r2 = 0.94, P < 0.001)
 
 par(mfrow = c(2,1))
 plot(area ~ max.wt, data = overall.hr.f, ylab = expression(paste('Home range area (km' ^'2', ')')), xlab = 'Body mass (kg)',
@@ -636,7 +645,7 @@ plot(area ~ max.wt, data = overall.hr.m, ylab = expression(paste('Home range are
   abline(m3)
   text(10.5, 0.1, expression(paste('r' ^'2', ' = 0.94')))
   text(5.5, 0.75, 'B', font = 2, cex = 1.3)
-  
+
 ## what about a correlation between HR and body mass for summer vs. winter?
 ## would make most sense to do this during breeding season (like Sweitzer 2003) but I don't have enough data
 sum.hr.f <- hr.all[hr.all$sex == 'f' & hr.all$percent == 95 & hr.all$season == 'sum' & hr.all$method == 'kde',]
@@ -658,9 +667,22 @@ m6 <- lm(area ~ max.wt, data = win.hr.f)
   summary(m6) ## no correlation btwn HR and body mass (r2 = 0.03)
 m7 <- lm(area ~ max.wt, data = win.hr.m)
   summary(m7) ## strong correlation btwn HR and body mass (r2 = 0.89, p = 0.016)
-  
-  
+plot(m6)  
+
+## add number of location points as a predictor to see whether model fit is improved
+m8 <- lm(area ~ max.wt + n_locs, data = overall.hr)
+  summary(m8)  ## r2 = 0.57, P = 0.027 for n_locs, P = 0.022 for max.wt (overall P = 0.002)
+
+## and try separately for f/m
+m9 <- lm(area ~ max.wt + n_locs, data = overall.hr.f)
+  summary(m9)  ## r2 = 0.495, P = 0.057 for n_locs, P = 0.263 for max.wt (overall P = 0.09)
+m10 <- lm(area ~ max.wt + n_locs, data = overall.hr.m)
+  summary(m10) ## r2 = 0.943, P = 0.607 for n_locs, P < 0.001 for max.wt (overall P < 0.001)
    
+# ---------------------------------------------------------------
+## 12. Miscellaneous summary stats
+# ---------------------------------------------------------------  
+
 ## 9/20/16 for discussion, compute % decrease in HR from summer to winter, ala Roze (2009):
 (m.mcp <- 1 - (0.075 / 0.125)) ## males, 95% mcp, winter / summer
 (f.mcp <- 1 - (0.063 / 0.232))
