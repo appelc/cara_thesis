@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------
 ## Home range calculation using KDE and MCP
-## Includes overlap metrics, t-tests, and body mass vs. HR size linear regression
+## Includes overlap metrics, t-tests, body mass vs. HR size linear regression, and summary stats
 # ---------------------------------------------------------------
 
 library(adehabitatHR)
@@ -11,6 +11,7 @@ library(reshape2)
 
 # ---------------------------------------------------------------
 ## 1. First, load porcupine location data
+## (SKIP TO LINE 41 IF USING A CSV OR NOT INCORPORATING NEW VHF DATA)
 # ---------------------------------------------------------------
 gs_ls()
 locs <- gs_title("Porc relocation data")
@@ -35,32 +36,49 @@ porc.gps.df$id <- as.factor(porc.gps.df$id)
 
 ## combine VHF with GPS points
 porc.locs <- rbind(porc.vhf, porc.gps.df)
+#porc.locs <- porc.vhf #RUN THIS IF NOT USING GPS POINTS
+
+## SKIP TO HERE UNLESS INCORPORATING NEW POINTS (this CSV has the exact points I used for my thesis analysis - CA)
+porc.locs <- read.csv('csvs/porc_locs_thesis_final.csv')
+porc.locs$date <- as.Date(porc.locs$date)
+
+porc.locs$id <- as.character(porc.locs$id)
+  porc.locs$id[porc.locs$id == '15.1'] <- '15.10' 
+  porc.locs$id[porc.locs$id == '16.2'] <- '16.20' 
+  porc.locs$id <- as.factor(porc.locs$id) 
 
 ## subset summer locations (before Nov 1 or after March 1) and winter (between Nov 1 and March 1)
-sum.cutoff <- '2015-11-01' 
-win.cutoff <- '2016-03-01'
-  sum.locs <- porc.locs[(porc.locs$date < sum.cutoff) | (porc.locs$date >= win.cutoff), ]
-  win.locs <- porc.locs[(porc.locs$date >= sum.cutoff) & (porc.locs$date < win.cutoff), ]
+## (WILL NEED TO MODIFY THIS FOR DATA PAST SUMMER 2016)
+sum15.cutoff <- '2015-11-01' 
+win16.cutoff <- '2016-03-01'
+  sum.locs <- porc.locs[(porc.locs$date < sum15.cutoff) | (porc.locs$date >= win16.cutoff), ]
+  win.locs <- porc.locs[(porc.locs$date >= sum15.cutoff) & (porc.locs$date < win16.cutoff), ]
 
 ## Keep only animals with >= 5 locations in each season (and overall; this only applies to 16.16)
 n <- table(sum.locs$id)
-sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
-sum.locs <- droplevels(sum.locs)
+  sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
+  sum.locs <- droplevels(sum.locs)
 
 n <- table(win.locs$id)
-win.locs <- subset(win.locs, id %in% names(n[n >= 5]), drop=TRUE)
-win.locs <- droplevels(win.locs)
+  win.locs <- subset(win.locs, id %in% names(n[n >= 5]), drop=TRUE)
+  win.locs <- droplevels(win.locs)
 
 n <- table(porc.locs$id)
-porc.locs <- subset(porc.locs, id %in% names(n[n >= 5]), drop=TRUE)
-porc.locs <- droplevels(porc.locs)
+  porc.locs <- subset(porc.locs, id %in% names(n[n >= 5]), drop=TRUE)
+  porc.locs <- droplevels(porc.locs)
 
 # ---------------------------------------------------------------
 ## 2. Then, extract the UD from "adehabitatHR" package
 # ---------------------------------------------------------------
 
-## Calculate grid & extent based on desired cell size (# meters on each side)
-## For for each animal separately 
+## Calculate grid & extent based on desired cell size (# meters on each side) 
+##  for each animal separately 
+
+  ## for clipping to study area (optional 2nd half of this loop for habitat seletion):  
+  library(rgdal)
+  veg.ext <- readOGR(dsn="shapefiles", layer="Veg extent4", verbose=TRUE)
+  proj4string(veg.ext) <- CRS("+proj=utm +zone=10 +datum=NAD83")
+  ##
 
 ids <- unique(porc.locs$id)
 kde.areas <- list()
@@ -69,6 +87,9 @@ overlap <- list()
 overlap.core <- list()
 contours.95 <- list()
 contours.50 <- list()
+outer_cont95 <- list()
+contours95 <- list()
+ud.list <- list()
 
 for (i in ids){
         locs.i <- porc.locs[porc.locs$id == i,]
@@ -81,7 +102,7 @@ for (i in ids){
         sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
                                        data=data.frame(locs.all.i$id_season),
                                        proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-        c = 10   ## desired cell size (meters)
+     c = 10   ## desired cell size (meters)
         fake.kern <- kernelUD(xy = sp.i, extent = 1)
         spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
         eas <- diff(range(spdf@extent[1:2]))
@@ -91,14 +112,15 @@ for (i in ids){
         } else {
           g <- (nor/c)
         }
-        # calculate UD on all IDs ("all", "winter", and "summer") with same4all = TRUE
+        
+      # calculate UD on all IDs ("all", "winter", and "summer") with same4all = TRUE
         kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
         kde.i <- kernel.area(kern.i, percent = c(50, 90, 95, 99), unin = "m", unout = "km2", standardize = FALSE)
         data.frame(kde.i, row.names = c("50", "90", "95", "99"))
         kde.areas[[i]] <- kde.i
         kud.all[[i]] <- kern.i
         
-        # calculate overlap using UDOI method ('UD overlap index' from Fieberg and Kochanny 2010)
+      # calculate overlap using UDOI method ('UD overlap index' from Fieberg and Kochanny 2010)
         if (length(kern.i) > 2){
           overlap.i <- kerneloverlaphr(kern.i, method = 'UDOI', percent = 95, conditional = TRUE)
           overlap.i.50 <- kerneloverlaphr(kern.i, method = 'UDOI', percent = 50, conditional = TRUE)
@@ -106,7 +128,7 @@ for (i in ids){
           overlap.core[[i]] <- overlap.i.50
         }
         
-        # make 95% contours
+      # make 95% contours
         cont95 <- list()
         for (j in names(kern.i)){
             cont95.i <- getverticeshr.estUD(kern.i[[j]], percent = 95, unin = "m", unout = "km2", standardize = FALSE)
@@ -114,7 +136,7 @@ for (i in ids){
         }
         contours.95[[i]] <- cont95
         
-        # make 50% contours
+      # make 50% contours
         cont50 <- list()
         for (j in names(kern.i)){
           cont50.i <- getverticeshr.estUD(kern.i[[j]], percent = 50, unin = "m", unout = "km2", standardize = FALSE)
@@ -122,84 +144,42 @@ for (i in ids){
         }
         contours.50[[i]] <- cont50
         
-
+  ## THE REST OF THIS LOOP IS ONLY NEEDED FOR HABITAT SELECTION ANALYSIS,
+  ## BUT I INCLUDED IT HERE TO MAKE SEASONAL UD FIGURES (SEE STEP #13)
+        
+       ## merge all 3 contours to make a single contour based on the outermost boundary
+        outer_cont95.i <- raster::union(cont95[[1]], cont95[[2]])
+        if ((length(cont95)) > 2) {
+          outer_cont95.i <- raster::union(outer_cont95.i, cont95[[3]]) ## because not all have winter
+        }
+        
+        outer_cont95.i <- gUnaryUnion(outer_cont95.i) ## dissolve polygons but this gets rid of @data
+        outer_cont95.i <- gIntersection(outer_cont95.i, veg.ext, byid = F) ## because some contours go outside study area
+        outer_cont95.i@polygons[[1]]@ID <- 'homerange' ## so it will match when creating SPDF below
+        
+       ## create @data to make it a SPDF (necessary for later steps)
+        row_data <- data.frame('homerange', (outer_cont95.i@polygons[[1]]@Polygons[[1]]@area))
+        rownames(row_data) <- rep('homerange', nrow(row_data))
+        colnames(row_data) <- c('id', 'area')
+        outer_cont95.i <- SpatialPolygonsDataFrame(outer_cont95.i, data = row_data)
+        
+       ## store contours (access as follows: contours[[i]][[j]] where i = ID and j = 1:all, 2:sum, 3:win)
+        outer_cont95[[i]] <- outer_cont95.i ## store outer contours
+        contours95[[i]] <- cont95 ## store all contours
+        
+       ## clip summer & winter UD grids to the 95% outer contour and veg extent
+        ud.i <- list()
+        for (j in names(kern.i)){
+          clipped.ud.i <- (kern.i[[j]])[outer_cont95.i,] ## outer boundary from ALL contours, see above
+          clipped.ud.i <- clipped.ud.i[veg.ext,]
+          ud.i[[j]] <- clipped.ud.i
+        }
+        ud.list[[i]] <- ud.i
+        
 }
 
 # ---------------------------------------------------------------
-## 3. Try overall home range for all animals combined to outline study area
-##    - should remove outliers (15.04 dispersal, 15.06 exploratory)
-# ---------------------------------------------------------------
-
-locs.all <- porc.locs ## to create SPDF
-locs.all$id2 <- rep('all', nrow(locs.all))
-sp.all <- SpatialPointsDataFrame(data.frame(locs.all$utm_e, locs.all$utm_n),
-                                 data=data.frame(locs.all$id2),
-                                 proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-veg_buf <- gBuffer(veg, byid = FALSE, width = 200) ## buffer 200 m around study area
-plot(sp.all)
-plot(veg_buf, add = TRUE, border = 'red')
-
-sp.all.clip <- sp.all[veg_buf,] ## clip points to buffered study area to remove outliers
-
-c = 10   ## desired cell size (meters)
-fake.kern <- kernelUD(xy = sp.all.clip, extent = 1)
-spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
-  eas <- diff(range(spdf@extent[1:2]))
-  nor <- diff(range(spdf@extent[3:4]))
-  if(eas > nor){
-    g <- (eas/c)
-  } else {
-    g <- (nor/c)
-  }
-  # calculate UD on all IDs ("all", "winter", and "summer") with same4all = TRUE
-  kern.i <- kernelUD(xy = sp.all.clip, h = 60, grid = g, extent = 1, same4all = TRUE)
-  kde.i <- kernel.area(kern.i, percent = c(50, 90, 95, 99), unin = "m", unout = "km2", standardize = FALSE)
-  data.frame(kde.i, row.names = c("50", "90", "95", "99"))
-kud.allporcs <- kern.i
-kde.allporcs <- kde.i
-  
-# make contours
-cont95.all <- getverticeshr.estUDm(kern.i, percent = 99, unin = "m", unout = "km2", standardize = FALSE)
-plot(cont95.all) ## looks too restrictive. try 99%, increasing bandwidth, or using MCP.
-
-# try MCP
-mcp.all <- mcp(sp.all.clip, percent = 100, unin="m", unout="km2")
-plot(mcp.all, main="95% MCP, All")
-mcp.all95.df <- data.frame(mcp.all95$id, rep('95', nrow(mcp.all95)), mcp.all95$area,
-                           rep('all', nrow(mcp.all95)), rep('mcp', nrow(mcp.all95)))
-
-### Try by max distance moved (other than outliers)
-ids <- unique(porc.locs$id)
-max.dist <- NULL
-
-for (i in ids){
-  max <- 0
-  cur.dist <- NULL
-  locs.i <- porc.locs[porc.locs$id == i,]
-  for(j in 1:nrow(locs.i)){
-    cur.pt <- locs.i[j,]
-    for(k in 1:nrow(locs.i)){
-      compare.pt <- locs.i[k,]
-      cur.dist <- sqrt((cur.pt$utm_e - compare.pt$utm_e)^2+(cur.pt$utm_n - compare.pt$utm_n)^2)
-      if(cur.dist > max){
-        max <- cur.dist
-      }
-    }
-  }
-  max.dist <- rbind(max.dist, data.frame(max, i))
-}
-
-max.dist ## for each animal
-max.dist <- max.dist[-c(4, 6),] ## remove 15.04 and 15.06
-max <- max(max.dist$max) ## overall (in meters)
-
-# Now buffer all the points
-study.area <- gBuffer(sp.all.clip, width = max)
-plot(study.area)
-
-# ---------------------------------------------------------------
-## 4. Organize list of KDE areas
+## 3. Organize list of KDE areas
 # ---------------------------------------------------------------
 
 ids <- names(kde.areas)
@@ -219,130 +199,11 @@ for(i in ids){
       kde.all <- rbind(kde.all, kdes.i)    
 }
 
-# ---------------------------------------------------------------
-## 5. Manipulate list of overlap metrices & do comparisons
-# ---------------------------------------------------------------
-
-ids <- names(overlap)
-overlap.all <- NULL
-for(i in ids){
-    overlap.i <- overlap[[i]] ## only keep those with both sum & win for comparisons
-  if (nrow(overlap.i) > 2){
-    all <- stack(overlap.i[,1])
-    all$s2 <- 'all'
-    sum <- stack(overlap.i[,2])
-    sum$s2 <- 'sum'
-    win <- stack(overlap.i[,3])
-    win$s2 <- 'win'
-    overlap.df <- rbind(all, sum, win)
-    overlap.df$id <- i
-    overlap.df$s1 <- substr(overlap.df$ind, 7, 9)
-  }
-    overlap.all <- rbind(overlap.all, overlap.df[,c(4, 5, 3, 1)])
-}
-
-all.all <- overlap.all[overlap.all$s1 == 'all' & overlap.all$s2 == 'all',]
-sum.all <- overlap.all[overlap.all$s1 == 'sum' & overlap.all$s2 == 'all',]
-win.all <- overlap.all[overlap.all$s1 == 'win' & overlap.all$s2 == 'all',]
-sum.win <- overlap.all[overlap.all$s1 == 'sum' & overlap.all$s2 == 'win',]
-
-overlap.means <- c(mean(sum.all$values), mean(win.all$values), mean(sum.win$values))
-overlap.se <- c(sd(sum.all$values)/sqrt(nrow(sum.all)), sd(win.all$values)/sqrt(nrow(win.all)), sd(sum.win$values)/sqrt(nrow(sum.win)))
-comparisons <- c('sum_all', 'win_all', 'sum_win')
-overlaps <- data.frame('comp' = comparisons, 'mean' = overlap.means, 'se' = overlap.se)
-
-t.test(sum.all$values, win.all$values, paired = TRUE, alternative = 'greater')
-t.test(sum.win$values, sum.all$values, paired = TRUE, alternative = 'less')
-t.test(sum.win$values, win.all$values, paired = TRUE, alternative = 'less')
-
-## Calculate overlap between males and females during summer & winter
-## need to re-run UDs on same grid in order to compare; 'kerneloverlap' includes this step, but input 'grid' parameter
-sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
-                               data = data.frame(sum.locs$id),
-                               proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-win.sp <- SpatialPointsDataFrame(data.frame(win.locs$utm_e, win.locs$utm_n),
-                               data = data.frame(win.locs$id),
-                               proj4string=CRS("+proj=utm +zone=10 +datum=NAD83"))
-
-overlap.sum <- kerneloverlap(sum.sp, method = 'UDOI', percent = 95, conditional = TRUE, 
-                              h = 60, grid = 535.7288, extent = 1) ## 535.7288 is 'g' from above code using 'sum.locs'
-overlap.win <- kerneloverlap(win.sp, method = 'UDOI', percent = 95, conditional = TRUE, 
-                              h = 60, grid = 176.9492, extent = 1) ## 535.7288 is 'g' from above code using 'win.locs'
-
-## can't do means on these because there are lots of redundancies (will inflate n)
-sum.melt <- melt(overlap.sum, varnames = c('row', 'col'), na.rm = TRUE)
-  sum.unique <- unique(t(apply(sum.melt, 1, sort)))
-  overlap.s <- sum.unique[(sum.unique[,2] != sum.unique[,3]),] ## good; 136 pair combinations (17 animals)
-  overlap.s.nonzero <- data.frame(overlap.s[(overlap.s[,1] != 0),])
-  
-win.melt <- melt(overlap.win, varnames = c('row', 'col'), na.rm = TRUE)
-  win.unique <- unique(t(apply(win.melt, 1, sort)))
-  overlap.w <- win.unique[(win.unique[,2] != win.unique[,3]),] ## good; 55 pair combinations (11 animals)
-  overlap.w.nonzero <-   data.frame(overlap.w[(overlap.w[,1] != 0),])
-
-overlap.means <- c(mean(overlap.s.nonzero[,1]), mean(overlap.w.nonzero[,1]))
-overlap.se <- c(sd(overlap.s.nonzero[,1])/sqrt(nrow(overlap.s.nonzero)), sd(overlap.w.nonzero[,1])/sqrt(nrow(overlap.w.nonzero))) ## or should sample sizes be 17 and 7?
-comparisons <- c('summer', 'winter')
-overlaps <- data.frame('comp' = comparisons, 'mean' = overlap.means, 'se' = overlap.se)
-
-## add m/f
-sex <- c('f', 'f', 'm', 'm', 'f', 'm', 'f', 'f', 'f', 'f', 'm', 'f', 'f', 'm', 'm', 'f', 'm', 'm', 'm')
-sex_key <- data.frame('id' = as.numeric(rownames(overlap.sum)), 'sex' = sex) ## as.numeric to match with below... otherwise get '15.1'... figure this out
-
-overlap.s.nonzero$sex1 <- sex_key[match(overlap.s.nonzero$X2, sex_key$id), 'sex'] 
-  overlap.s.nonzero$sex2 <- sex_key[match(overlap.s.nonzero$X3, sex_key$id), 'sex'] 
-overlap.w.nonzero$sex1 <- sex_key[match(overlap.w.nonzero$X2, sex_key$id), 'sex']
-  overlap.w.nonzero$sex2 <- sex_key[match(overlap.w.nonzero$X3, sex_key$id), 'sex']
-
-mean.s.ff <- mean(overlap.s.nonzero$X1[overlap.s.nonzero$sex1 == 'f' & overlap.s.nonzero$sex2 == 'f'])
-mean.s.mm <- mean(overlap.s.nonzero$X1[overlap.s.nonzero$sex1 == 'm' & overlap.s.nonzero$sex2 == 'm'])
-mean.s.fm <- mean(overlap.s.nonzero$X1[overlap.s.nonzero$sex1 != overlap.s.nonzero$sex2])
-
-## Now look at overlap between core areas only (50% KDEs)
-overlap50.sum <- kerneloverlap(sum.sp, method = 'UDOI', percent = 50, conditional = TRUE, 
-                             h = 60, grid = 535.7288, extent = 1) ## 535.7288 is 'g' from above code using 'sum.locs'
-overlap50.win <- kerneloverlap(win.sp, method = 'UDOI', percent = 50, conditional = TRUE, 
-                             h = 60, grid = 176.9492, extent = 1) ## 535.7288 is 'g' from above code using 'win.locs'
-
-## can't do means on these because there are lots of redundancies (will inflate n)
-sum.melt50 <- melt(overlap50.sum, varnames = c('row', 'col'), na.rm = TRUE)
-sum.unique50 <- unique(t(apply(sum.melt50, 1, sort)))
-overlap.s50 <- sum.unique50[(sum.unique50[,2] != sum.unique50[,3]),] ## good; 136 pair combinations (17 animals)
-overlap.s.nonzero50 <- data.frame(overlap.s50[(overlap.s50[,1] != 0),])
-
-win.melt50 <- melt(overlap50.win, varnames = c('row', 'col'), na.rm = TRUE)
-win.unique50 <- unique(t(apply(win.melt50, 1, sort)))
-overlap.w50 <- win.unique50[(win.unique50[,2] != win.unique50[,3]),] ## good; 55 pair combinations (11 animals)
-overlap.w.nonzero50 <-   data.frame(overlap.w50[(overlap.w50[,1] != 0),])
-
-overlap.means50 <- c(mean(overlap.s.nonzero50[,1]), mean(overlap.w.nonzero50[,1]))
-overlap.se50 <- c(sd(overlap.s.nonzero50[,1])/sqrt(nrow(overlap.s.nonzero50)), sd(overlap.w.nonzero50[,1])/sqrt(nrow(overlap.w.nonzero50))) ## or should sample sizes be 17 and 7?
-comparisons <- c('summer', 'winter')
-overlaps50 <- data.frame('comp' = comparisons, 'mean' = overlap.means50, 'se' = overlap.se50)
-
-## add m/f
-sex <- c('f', 'f', 'm', 'm', 'f', 'm', 'f', 'f', 'f', 'f', 'm', 'f', 'f', 'm', 'm', 'f', 'm', 'm', 'm')
-sex_key <- data.frame('id' = as.numeric(rownames(overlap.sum)), 'sex' = sex) ## as.numeric to match with below... otherwise get '15.1'... figure this out
-
-overlap.s.nonzero50$sex1 <- sex_key[match(overlap.s.nonzero50$X2, sex_key$id), 'sex'] 
-overlap.s.nonzero50$sex2 <- sex_key[match(overlap.s.nonzero50$X3, sex_key$id), 'sex'] 
-overlap.w.nonzero50$sex1 <- sex_key[match(overlap.w.nonzero50$X2, sex_key$id), 'sex']
-overlap.w.nonzero50$sex2 <- sex_key[match(overlap.w.nonzero50$X3, sex_key$id), 'sex']
-
-mean.s.ff50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 == 'f' & overlap.s.nonzero50$sex2 == 'f'])
-mean.s.mm50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 == 'm' & overlap.s.nonzero50$sex2 == 'm'])
-mean.s.fm50 <- mean(overlap.s.nonzero50$X1[overlap.s.nonzero50$sex1 != overlap.s.nonzero50$sex2])
-
-### ok, 'overlaps' tells us means. so more overlapped during winter than summer...?
-## how many overlapped at all? what was the highest/lowest overlap between a pair?
-## next do males / females
 
 # ---------------------------------------------------------------
-## 6. Quick plot of home ranges
+## 4. Quick plot of home ranges (optional) & export shapefiles
 # ---------------------------------------------------------------
 
-f <- c('15.01', '15.02', '15.05', '15.07', '15.08', '15.09', '15.10', '15.12', '15.13', '16.16', '16.17')
-m <- c('15.03', '15.04', '15.06', '15.11', '15.14', '16.15', '16.18')
 plot(veg.ext)
 for (i in f){
   plot(contours.95[[i]][[2]], add = TRUE, lty = 1, lwd = 2)
@@ -365,7 +226,7 @@ for (i in names(contours.50)){
 }
 
 # ---------------------------------------------------------------
-## 7. Calculate MCPs
+## 5. Calculate MCPs
 # ---------------------------------------------------------------
 
 ## all points 95%
@@ -413,7 +274,7 @@ mcp.all <- rbind(mcp.all95.df, mcp.sum95.df, mcp.win95.df)
 writeOGR(mcp.sum95, dsn = 'Shapefiles/home_ranges_101616/mcp', layer = 'summer_95_mcp', driver = 'ESRI Shapefile')
 writeOGR(mcp.win95, dsn = 'Shapefiles/home_ranges_101616/mcp', layer = 'winter_95_mcp', driver = 'ESRI Shapefile')
 
-## 50% MCPs are for plotting only (not used in any analysis)
+## 50% MCPs are for plotting only (not used in any analysis -- can skip this)
 ## summer 50%
 sum.df <- data.frame(sum.locs$utm_e, sum.locs$utm_n, sum.locs$id, sum.locs$date)
 colnames(sum.df) <- c("x", "y", "id", "date")
@@ -444,10 +305,12 @@ writeOGR(mcp.sum50, dsn = 'Shapefiles/home_ranges_101616/mcp', layer = 'summer_5
 writeOGR(mcp.win50, dsn = 'Shapefiles/home_ranges_101616/mcp', layer = 'winter_50_mcp', driver = 'ESRI Shapefile')
 
 # ---------------------------------------------------------------
-## 8. Now do analysis
+## 6. Now do summary statistics (means, etc.)
 # ---------------------------------------------------------------
 
 hr.all <- rbind(kde.all, mcp.all) # combine MCP and KDE
+
+## NEED TO ADD SEX FOR ANIMALS AFTER 16.20
 hr.all$sex[hr.all$id %in% c('15.01', '15.02', '15.05', '15.07', '15.08', '15.09', '15.10', '15.12', '15.13', '16.16', '16.17')] <- 'f'
 hr.all$sex[hr.all$id %in% c('15.03', '15.04', '15.06', '15.11', '15.14', '16.15', '16.18', '16.19', '16.20')] <- 'm'
 
@@ -458,9 +321,11 @@ hr.all <- hr.all[hr.all$id != '15.04',]
 hr.summary <- aggregate(hr.all$area, by = list(sex = hr.all$sex, season = hr.all$season, method = hr.all$method, percent = hr.all$percent),
                         FUN = function(x) c(mean = mean(x), sd = sd(x), n = length(x)))
 hr.summary <- do.call(data.frame, hr.summary) # make data frames instead of matrices
-colnames(hr.summary) <- c('sex', 'season', 'method', 'percent', 'mean', 'sd', 'n')
-hr.summary$se <- hr.summary$sd / sqrt(hr.summary$n)
-hr.summary$names <- c(paste(hr.summary$sex, hr.summary$season, sep = '_'))
+  colnames(hr.summary) <- c('sex', 'season', 'method', 'percent', 'mean', 'sd', 'n')
+  hr.summary$se <- hr.summary$sd / sqrt(hr.summary$n)
+  hr.summary$names <- c(paste(hr.summary$sex, hr.summary$season, sep = '_'))
+
+## change file name and directory to export summary:
 write.csv(hr.summary, 'csvs/homeranges091016.csv')
 
 ## mean and SE of both males/females (b/c not computed automatically in aggregate)
@@ -497,7 +362,7 @@ all.win.95mcp <- hr.all[hr.all$percent == 95 & hr.all$method == 'mcp' & hr.all$s
   (n <- length(all.win.95mcp))
   sd(all.win.95mcp) / n
   
-## both seasons, both sexes (not in aggregate)
+## both seasons, both sexes (these aren't in the aggregate)
 all.all.50kde <- hr.all[hr.all$percent == 50 & hr.all$method == 'kde' & hr.all$season == 'all',]$area
   mean(all.all.50kde)
   (n <- length(all.all.50kde))
@@ -515,9 +380,10 @@ all.all.95mcp <- hr.all[hr.all$percent == 95 & hr.all$method == 'mcp' & hr.all$s
   (n <- length(all.all.95mcp))
   sd(all.all.95mcp) / n 
 
+## CAN SKIP THIS NEXT PART:
 ## now do this all over again using ONLY animals with both summer and winter home ranges
 ## b/c these are the ones used in paired t-tests below
-## (Just out of curiousity. I report the above values--all porcupines--in results.)
+## (Just out of curiousity. I report the above values for all porcupines in results.)
 
 hr.all.mod <- subset(hr.all, id %in% c('15.01', '15.02', '15.03', '15.07', '15.11', '15.12', '15.13', '15.14', '16.15', '16.17', '16.18'), drop = TRUE)
 hr.all.mod$id <- droplevels(hr.all.mod$id)
@@ -530,19 +396,19 @@ hr.mod.summary$names <- c(paste(hr.mod.summary$sex, hr.mod.summary$season, sep =
 write.csv(hr.mod.summary, 'csvs/homeranges_mod091016.csv')
 
 # ---------------------------------------------------------------
-## 9. Now make plots
+## 7. Now make bar graphs
 # ---------------------------------------------------------------
 
 ## first, subset only 95% KDEs
 hr.summary.kde <- hr.summary[hr.summary$method == 'kde' & hr.summary$percent == '95',]
-hr.summary.kde$sex <- as.character(hr.summary.kde$sex)
-hr.summary.kde$sex[hr.summary.kde$sex == 'm'] <- 'males'
-hr.summary.kde$sex[hr.summary.kde$sex == 'f'] <- 'females'
+  hr.summary.kde$sex <- as.character(hr.summary.kde$sex)
+  hr.summary.kde$sex[hr.summary.kde$sex == 'm'] <- 'males'
+  hr.summary.kde$sex[hr.summary.kde$sex == 'f'] <- 'females'
 
 hr.mod.summary.kde <- hr.mod.summary[hr.mod.summary$method == 'kde' & hr.mod.summary$percent == '95',]
-hr.mod.summary.kde$sex <- as.character(hr.mod.summary.kde$sex)
-hr.mod.summary.kde$sex[hr.mod.summary.kde$sex == 'm'] <- 'males'
-hr.mod.summary.kde$sex[hr.mod.summary.kde$sex == 'f'] <- 'females'
+  hr.mod.summary.kde$sex <- as.character(hr.mod.summary.kde$sex)
+  hr.mod.summary.kde$sex[hr.mod.summary.kde$sex == 'm'] <- 'males'
+  hr.mod.summary.kde$sex[hr.mod.summary.kde$sex == 'f'] <- 'females'
 
 ## now plot with all animals
 #par(mar = c(5, 6, 4, 5) + 0.1)
@@ -566,7 +432,7 @@ segments(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE,
 arrows(barCenters, tabbedMeans - tabbedSE, barCenters, tabbedMeans + tabbedSE, lwd = 1.5, angle = 90, code = 3, length = 0.05)
 
 # ---------------------------------------------------------------
-## 10. t-tests: use 95% KDE for now
+## 8. Conduct t-tests (use 95% KDE for now)
 # ---------------------------------------------------------------
 
 ##### female summer vs. winter
@@ -574,8 +440,8 @@ s.f <- hr.all[hr.all$sex == 'f' & hr.all$season == 'sum' & hr.all$method == 'kde
 w.f <- hr.all[hr.all$sex == 'f' & hr.all$season == 'win' & hr.all$method == 'kde' & hr.all$percent == 95,]
 s.f2 <- s.f[-c(3, 5, 6, 7),] # only keep those with both summer & winter for paired t-test
 
-t.test(s.f2$area, w.f$area, paired = TRUE) # n = 6
-t.test(s.f$area, w.f$area, paired = FALSE) # n = 10 / 6
+  t.test(s.f2$area, w.f$area, paired = TRUE) 
+  t.test(s.f$area, w.f$area, paired = FALSE) 
 
 ## aggregate, compute standard error, plot, and add error bars
 females <- rbind(w.f, s.f2)
@@ -596,28 +462,30 @@ arrows(barCenters, f.summary$mean - f.summary$se * 2, barCenters, f.summary$mean
 s.m <- hr.all[hr.all$sex == 'm' & hr.all$season == 'sum' & hr.all$method == 'kde' & hr.all$percent == 95,]
 w.m <- hr.all[hr.all$sex == 'm' & hr.all$season == 'win' & hr.all$method == 'kde' & hr.all$percent == 95,]
 s.m2 <- s.m[-c(2, 3, 8:9),]
-
-t.test(s.m2$area, w.m$area, paired = TRUE) # n = 5
-t.test(s.m$area, w.m$area, paired = FALSE) # n = 5 / 6
+  
+  t.test(s.m2$area, w.m$area, paired = TRUE) 
+  t.test(s.m$area, w.m$area, paired = FALSE) 
 
 ## summer female vs. male
-t.test(s.f$area, s.m$area, paired = FALSE) # n = 10 / 6
+var.test(s.f$area, s.m$area) # p>0.05; assume equal variance
+t.test(s.f$area, s.m$area, var.equal = TRUE, paired = FALSE) 
 
 ## winter female vs. male
-t.test(w.f$area, w.m$area, paired = FALSE) # n = 6 / 5
+var.test(w.f$area, w.m$area) # p>0.05; assume equal variance
+t.test(w.f$area, w.m$area, var.equal = TRUE, paired = FALSE) 
 
 ## overall female vs. male
 all.m <- hr.all[hr.all$sex == 'm' & hr.all$season == 'all' & hr.all$method == 'kde' & hr.all$percent == 95,]
 all.f <- hr.all[hr.all$sex == 'f' & hr.all$season == 'all' & hr.all$method == 'kde' & hr.all$percent == 95,]
-t.test(all.f$area, all.m$area, paired = FALSE) # n = 8 / 10
+var.test(all.f$area, all.m$area)
+t.test(all.f$area, all.m$area, var.equal = TRUE, paired = FALSE) 
 
 ## both summer vs. winter
 s.both <- hr.all[hr.all$season == 'sum' & hr.all$method == 'kde' & hr.all$percent == 95,]
 w.both <- hr.all[hr.all$season == 'win' & hr.all$method == 'kde' & hr.all$percent == 95,]
 s.both2 <- s.both[-c(4:5, 7:9, 17:18),]
 
-t.test(s.both2$area, w.both$area, paired = TRUE) # n = 11
-t.test(s.both$area, w.both$area, paired = FALSE) # n = 16 / 11
+t.test(s.both2$area, w.both$area, paired = TRUE) 
 
 ######### try a different way
 head(hr.all)
@@ -645,9 +513,9 @@ arrows(barCenters, hr.summary$mean - hr.summary$se * 2, barCenters, hr.summary$m
 
 
 # ---------------------------------------------------------------
-## 11. Linear regression: home range size vs. body mass 
+## 9. Linear regression: home range size vs. body mass 
 ##    - using "porc.wts" from "season-weight.R" script
-##    -(overall HR vs. maximum weight attained)
+##    - overall HR vs. maximum weight attained
 # ---------------------------------------------------------------
 
 max.wts <- NULL
@@ -660,6 +528,9 @@ max.wts$i <- as.character(max.wts$i) ## fix this earlier; shouldn't need to...
 max.wts$i[max.wts$i == '15.1'] <- '15.10'
 max.wts$i[max.wts$i == '16.2'] <- '16.20'
 max.wts$i <- as.factor(max.wts$i)
+
+## remove 16.16
+max.wts <- max.wts[-16,]
 
 ## use overall 95% KDE
 overall.hr <- hr.all[hr.all$percent == 95 & hr.all$season == 'all' & hr.all$method == 'kde',]
@@ -677,13 +548,13 @@ m1b <- lm(area ~ max.wt + n_locs, data = overall.hr)
 
 par(mar = c(5, 5, 2, 3), xpd = FALSE) #bottom, left, top, right (xpd=FALSE keeps abline inside plot area)
 plot(area ~ max.wt, data = overall.hr, ylab = expression(paste('Home range area (km' ^'2', ')')), xlab = 'Body mass (kg)')
-abline(m1)
+abline(m1a)
 
 ## difference between males and females?
 overall.hr.f <- overall.hr[overall.hr$sex == 'f',]
 overall.hr.m <- overall.hr[overall.hr$sex == 'm',]
 
-m2a <- lm(area ~ max.wt, data = overall.hr.f)
+m2 <- lm(area ~ max.wt, data = overall.hr.f)
   summary(m2a) ## no correlation btwn HR and body mass (r2 = 0.12, P = 0.325)
 m2b <- lm(area ~ max.wt + n_locs, data = overall.hr.f)
   summary(m2b)  ## r2 = 0.495, P = 0.057 for n_locs, P = 0.263 for max.wt (overall P = 0.09)
@@ -692,7 +563,7 @@ m2b <- lm(area ~ max.wt + n_locs, data = overall.hr.f)
   table2 <- weightable(m2.selection)
   table2$delta_aicc <- table2$aicc - (table2$aicc[1])  
 
-m3a <- lm(area ~ max.wt, data = overall.hr.m)
+m3 <- lm(area ~ max.wt, data = overall.hr.m)
   summary(m3a) ## strong correlation btwn HR and body mass (r2 = 0.94, P < 0.001)
 m3b <- lm(area ~ max.wt + n_locs, data = overall.hr.m)
   summary(m3b) ## r2 = 0.943, P = 0.607 for n_locs, P < 0.001 for max.wt (overall P < 0.001)
@@ -701,22 +572,39 @@ m3b <- lm(area ~ max.wt + n_locs, data = overall.hr.m)
   table3 <- weightable(m3.selection)
   table3$delta_aic <- table3$aicc - (table3$aicc[1])
   
+## what if we remove animals whose 'max wts' dont make much sense because they were only
+  ## collared for a few months? (all were males)
+m3c <- lm(area ~ max.wt, data = overall.hr.m[overall.hr.m$id != c('16.15', '16.18', '16.19', '16.20'),])
+  summary(m3c) ## strong correlation btwn HR and body mass (r2 = 0.95, P < 0.027)
+  ## doesn't really change things! we also tested for effect of sample size of locations (models m1b, m2b, m3b)
   
+  
+## both female & male plots:  
 par(mfrow = c(2,1), mar = c(5,5,2,1))
 plot(area ~ max.wt, data = overall.hr.f, ylab = expression(paste('Home range size (km' ^'2', ')')), xlab = 'Body mass (kg)',
      xlim = c(5.5, 11), ylim = c(0, 0.8))
-  abline(m2)
+  abline(m2a)
   text(10.5, 0.1, expression(paste('r' ^'2', ' = 0.12')))
   text(5.5, 0.75, 'A', font = 2, cex = 1.3)
 plot(area ~ max.wt, data = overall.hr.m, ylab = expression(paste('Home range size (km' ^'2', ')')), xlab = 'Body mass (kg)',
      xlim = c(5.5, 11), ylim = c(0, 0.8))
-  abline(m3)
+  abline(m3a)
   text(10.5, 0.1, expression(paste('r' ^'2', ' = 0.94')))
   text(5.5, 0.75, 'B', font = 2, cex = 1.3)
 
-
+## try female & male on the same plot:
+par(mfrow = c(1,1), mar = c(5, 5, 2, 3), xpd = FALSE) #bottom, left, top, right (xpd=FALSE keeps abline inside plot area)
+plot(area ~ max.wt, data = overall.hr.f, ylab = expression(paste('Home range size (km' ^'2', ')')), xlab = 'Body mass (kg)',
+     xlim = c(5.5, 11), ylim = c(0, 0.8), pch = 19, cex = 1.5, col = 'gray60', cex.lab = 1.5, cex.axis = 1.5)
+abline(m2, col = 'darkgray', lwd = 2) #female
+abline(m3, col = 'black', lty = 5, lwd = 2) #male
+points(area ~ max.wt, data = overall.hr.m, pch = 17, cex = 1.5, col = 'black') 
+text(10.5, 0.2, expression(paste('r' ^'2', ' =0.12')), col = 'gray50', cex = 1.5)
+text (10.5, 0.1, expression(paste('r' ^'2', ' =0.94')), col = 'black', cex = 1.5)
+  
+  
 # ---------------------------------------------------------------
-## 12. Miscellaneous summary stats
+## 10. Miscellaneous summary stats
 # ---------------------------------------------------------------  
 
 ## 9/20/16 for discussion, compute % decrease in HR from summer to winter, ala Roze (2009):
@@ -729,7 +617,7 @@ plot(area ~ max.wt, data = overall.hr.m, ylab = expression(paste('Home range siz
 (a.kde <- 1 - (0.224 / 0.327))
   
 # ----------------------------------------------------------------
-## 13. Export shapefile of capture locations for map
+## 11. Export shapefile of capture locations for map
 # ----------------------------------------------------------------
 
 cap.locs <- porc.locs[porc.locs$sess == 0,]
@@ -740,3 +628,64 @@ cap.locs.sp <- SpatialPointsDataFrame(data.frame(cap.locs$utm_e, cap.locs$utm_n)
 plot(cap.locs.sp)
 
 writeOGR(cap.locs.sp, dsn = 'Shapefiles', layer = 'cap_locs', driver="ESRI Shapefile")   
+
+# ----------------------------------------------------------------
+## 12. Create table of sample sizes (per porcupine/season)
+# ----------------------------------------------------------------
+
+t <- table(porc.locs$id, porc.locs$type)
+
+s <- table(sum.locs$id, sum.locs$type)
+
+w <- table(win.locs$id, win.locs$type)
+
+## read original table (to report sample sizes for all animals, even those excluded from analysis)
+porc.locs.original <- read.csv('csvs/porc_locs_thesis_final.csv')
+    porc.locs.original$date <- as.Date(porc.locs.original$date)
+
+    porc.locs.original$id <- as.character(porc.locs.original$id)
+    porc.locs.original$id[porc.locs.original$id == '15.1'] <- '15.10' 
+    porc.locs.original$id[porc.locs.original$id == '16.2'] <- '16.20' 
+    porc.locs.original$id <- as.factor(porc.locs.original$id) 
+
+## subset locations by season (summer 2015, winter 2015-16, summer 2016)
+sum15.cutoff <- '2015-11-01' 
+win16.cutoff <- '2016-03-01'
+    sum15.locs.original <- porc.locs.original[(porc.locs.original$date < sum15.cutoff), ]
+    win15.locs.original <- porc.locs.original[(porc.locs.original$date >= sum15.cutoff) & (porc.locs.original$date < win16.cutoff), ]
+    sum16.locs.original <- porc.locs.original[(porc.locs.original$date >= win16.cutoff) ,]
+
+s15 <- table(sum15.locs.original$id, sum15.locs.original$type)
+
+w1516 <- table(win15.locs.original$id, win15.locs.original$type)
+
+s16 <- table(sum16.locs.original$id, sum16.locs.original$type)
+
+# ----------------------------------------------------------------
+## 13. Create figures comparing seasonal utilization distributions (UD) for each animal
+##    (basically, its use of its total home range during each season)
+# ----------------------------------------------------------------
+
+par(mfrow = c(1,3), oma = c(0,0,0,0), mar = c(0,0,0,0))
+
+## example for one animal:
+## 1. 'image' shows the UD gradient (clipped to the outer 95% contour)
+## 2. 'plot' adds a black outline for the 95% KDE contour (i.e., seasonal home range)
+## (do this 3 times, for all, summer, winter)
+
+image(ud.list$`16.17`$all)
+  plot(contours95$`16.17`$all, add = TRUE, border = 'black', lwd = 2)
+image(ud.list$`16.17`$sum)
+  plot(contours95$`16.17`$sum, add = TRUE, border = 'black', lwd = 2)
+image(ud.list$`16.17`$win)
+  plot(contours95$`16.17`$win, add = TRUE, border = 'black', lwd = 2)
+
+scalebar(500, xy = NULL, type = 'bar', divs = 4, below = 'meters') ## or use xy = click() to click plot to place (magic!)
+
+## go back and run the 'par' line above to clear plot before doing another animal
+
+# ----------------------------------------------------------------
+## I removed some code from this file that is now in 'porc_homerange_extracode.R'
+## It includes trying to outline the study area by combining all animal home ranges 
+    ## (or by maximum distance moved) as well as overlap metrics (between animals). -CA
+# ----------------------------------------------------------------

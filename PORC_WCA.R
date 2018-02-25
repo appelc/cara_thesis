@@ -14,10 +14,11 @@ ttest_sig_2 #also exported as .csv
 ttest_sig_3 #also exported as .csv
 
 ## FINAL FIGURES:
-s2_sr
-w2_sr
-s3_sr
-w3_sr #selection ratio floating bar plots (geomean w/ CI) with geom_points
+wca.panel # line ~860
+  summer_2
+  winter_w
+  summer_3
+  winter_3 #individual selection ratio floating bar plots (geomean w/ CI) with geom_points
 
 library(googlesheets)
 library(adehabitatHR)
@@ -32,9 +33,10 @@ library(psych) # for geometric.mean
 library(ggplot2)
 library(lattice)
 library(gridExtra)
+library(grid)
 
 # ----------------------------------------------------------------
-# 1. First, load porcupine location data & veg data
+# 1. First, load porcupine location data & veg data **SKIP TO LINE 64 FOR DATA USED IN THESIS**
 # ----------------------------------------------------------------
 
 gs_ls()
@@ -60,6 +62,11 @@ porc.gps.df$id <- as.factor(porc.gps.df$id)
 
 ## combine VHF with GPS points
 porc.locs <- rbind(porc.vhf, porc.gps.df)
+
+## SKIP TO HERE UNLESS INCORPORATING NEW POINTS (these are the exact points I used for my thesis analysis)
+porc.locs <- read.csv('csvs/porc_locs_thesis_final.csv')
+porc.locs$date <- as.Date(porc.locs$date)
+porc.locs$id <- as.factor(porc.locs$id)
 
 ## subset summer locations (before Nov 1 or after March 1) and winter (between Nov 1 and March 1)
 sum.cutoff <- '2015-11-01' 
@@ -230,7 +237,9 @@ veg_over <- veg_over[!is.na(veg_over$veg),] ## there should be none anyway
 ##    - same for 2nd and 3rd order: proportional use of each veg class (total UD height per veg type / total UD height in HR)
 # ----------------------------------------------------------------
 
+seasons <- unique(veg_over$season)
 use_2_3 <- list()
+
 for (j in seasons){
     uds <- veg_over[veg_over$season == j,]
     uds <- uds[,c(1, 3:4)]
@@ -657,7 +666,6 @@ write.csv(ttest_sig_3[[3]], 'csvs/ttests_ranks/030917/ttests_3rd_winter.csv')
 # ----------------------------------------------------------------
 ##  9. Box plots (selection ratios = proportional use / proportional availability)  
 ##    - these are centered on 1, and veg types are ordered by their ranks (previously plotted this with 'log_ratios_2' instead of 'sel_ratios_2')
-##    a. 2nd order
 # ----------------------------------------------------------------
 
 ## assign colors to veg classes for plotting:
@@ -675,122 +683,194 @@ geo.mean.ci <- function(x) {
   w
 }
 
-############################################################33
+## create matrix with number of relocationss by veg type per animal 
+##    (so we can scale points by sample size on the figure)
+
+  plot(veg)
+  plot(porc.locs.sp, col = 'blue', add = TRUE)
+
+porc.locs.sp@data$veg <- over(porc.locs.sp, veg)$Class_4   # assign veg class to each loc
+porc.locs.veg <- data.frame(porc.locs.sp@data[,c(2,3,10)])
+porc.locs.veg <- porc.locs.veg[!is.na(porc.locs.veg$veg),] # remove rows where veg = NA (outside digitized veg area, e.g. 15.06)
+
+sum.cutoff <- '2015-11-01' 
+win.cutoff <- '2016-03-01'
+
+porc.locs.veg.sum <- porc.locs.veg[(porc.locs.veg$date < sum.cutoff | porc.locs.veg$date >= win.cutoff), ]
+porc.locs.veg.win <- porc.locs.veg[(porc.locs.veg$date >= sum.cutoff) & (porc.locs.veg$date < win.cutoff), ]
+
+obs_by_veg_sum <- data.frame(t(table(porc.locs.veg.sum$id, porc.locs.veg.sum$veg)))
+  colnames(obs_by_veg_sum) <- c('veg', 'id', 'freq')
+obs_by_veg_win <- data.frame(t(table(porc.locs.veg.win$id, porc.locs.veg.win$veg)))
+  colnames(obs_by_veg_win) <- c('veg', 'id', 'freq')
+  
+# ----------------------------------------------------------------
+##    a. 2nd order
+# ----------------------------------------------------------------
 
 ## Reshape 'sel_ratios_2'
-sr_2s <- reshape(sel_ratios_2[[2]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_2[[2]]))
-sr_2s$rank <- ranks_2[[2]][match(sr_2s$veg, ranks_2[[2]]$veg), 'pos_r']
-#sr_2s_no <- sr_2s[sr_2s$sel_ratio < 10,] ## remove outlier points ## we'll zoom in instead of removing (see below)
+sr_2s <- reshape(sel_ratios_2[[2]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_2[[2]]), ids = rownames(sel_ratios_2[[2]]))
+  sr_2s$rank <- ranks_2[[2]][match(sr_2s$veg, ranks_2[[2]]$veg), 'pos_r'] #could use either 'match' or 'merge' for this and the next line
+  sr_2s <- merge(x = sr_2s, y = obs_by_veg_sum, by.x = c('id', 'veg'), by.y = c('id','veg'), all.x = TRUE)
+  #sr_2s_no <- sr_2s[sr_2s$sel_ratio < 10,] ## remove outlier points ## we'll zoom in instead of removing (see below, using coord_cartesian)
 
-sr_2w <- reshape(sel_ratios_2[[3]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_2[[3]]))
-sr_2w$rank <- ranks_2[[3]][match(sr_2w$veg, ranks_2[[3]]$veg), 'pos_r']
-#sr_2w_no <- sr_2w[sr_2w$sel_ratio < 10,] ## remove outlier points ## we'll zoom in instead of removing (see below)
+sr_2w <- reshape(sel_ratios_2[[3]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_2[[3]]), ids = rownames(sel_ratios_2[[3]]))
+  sr_2w$rank <- ranks_2[[3]][match(sr_2w$veg, ranks_2[[3]]$veg), 'pos_r']
+  sr_2w <- merge(x = sr_2w, y = obs_by_veg_win, by.x = c('id', 'veg'), by.y = c('id','veg'), all.x = TRUE)
+  #sr_2w_no <- sr_2w[sr_2w$sel_ratio < 10,] ## remove outlier points ## we'll zoom in instead of removing (see below)
 
 ## FOR COLOR INSTEAD OF GRAYSCALE:
 ## replace 'scale_fill_grey(start = 0.8, end = 0.8, guide = FALSE) +' with 'scale_fill_manual(values = colors$veg_colors, guide = FALSE) +'
 
 ## Don't need to remove outliers; we'll just 'zoom in' using coord_cartesian
-s2_sr <- ggplot(data = sr_2s, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+summer_2 <- ggplot(data = sr_2s, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
           stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
-          geom_point(data = sr_2s, position = position_dodge(0.8), size = 2) +
+          geom_point(data = sr_2s, position = position_dodge(0.8), aes(size = freq)) +
+          scale_size_continuous(range = c(1,4), guide = FALSE) +       
           scale_fill_grey(start = 0.8, end = 0.8, guide = FALSE) +
-          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + 
-          ylab(expression(Selection~Ratio~(w[i]))) + coord_cartesian(ylim = c(0,7)) +
-          theme(axis.text.x = element_text(size = 20, colour = 'black', angle = 35, hjust = 1),
-                axis.text.y = element_text(size = 20, colour = 'black'),
-                axis.title = element_text(size = 20, colour = 'black'),
-                axis.title.y = element_text(margin = margin(t = 0, r = 40, b = 1, l = 0)), ##remove if using standalone instead of 2x2 figure
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) + 
+          ylab(expression(paste('Selection Ratio (', italic('w'[i]), ')'))) + coord_cartesian(ylim = c(0,7)) +
+          theme(axis.text.x = element_text(size = 16, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 16, colour = 'black'),
+                axis.title = element_text(size = 16, colour = 'black'),
+               # axis.title.y = element_text(margin = margin(t = 0, r = 40, b = 1, l = 0)), ##remove if using standalone instead of 2x2 figure
                 axis.title.x = element_blank(), axis.title.y = element_text(margin = margin(0,16,0,0)),
-                axis.ticks = element_line(colour = 'black', size = 1),
+                axis.ticks = element_line(colour = 'black', size = 0.8),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
                 panel.background = element_rect(fill = 'white'),
-                plot.margin=unit(c(0.8,0.25,0.75,0.5), "cm")) + ##change back to 'c(0.8, 0.5, 0.75, 0.5)' if using standalone instead of 2x2 figure
-          geom_text(label ='*', aes(x = 6, y = 2), size = 12, colour = 'grey40') +
-          geom_text(label = 'A', aes(x = 9, y = 6.7), size = 8) 
-s2_sr
+              plot.margin=unit(c(0.5,0.25,0.5,0.5), "cm")) + ##change back to 'c(0.8, 0.5, 0.75, 0.5)' if using standalone instead of 2x2 figure
+          geom_text(label ='*', aes(x = 6, y = 2), size = 12, colour = 'grey40') + 
+          geom_text(label = 'A', aes(x = 9, y = 6.6), size = 8) 
+summer_2
 
-w2_sr <- ggplot(data = sr_2w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+winter_2 <- ggplot(data = sr_2w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
           stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
-          geom_point(data = sr_2w, position = position_dodge(0.8), size = 2) +
+          geom_point(data = sr_2w, position = position_dodge(0.8), aes(size = freq)) +
+          scale_size_continuous(range = c(1,4), guide = FALSE) +        
           scale_fill_grey(start = 0.8, end = 0.8, guide = FALSE) +
-          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + 
-          ylab(expression(Selection~Ratio~(w[i]))) + coord_cartesian(ylim = c(0,7)) +
-          theme(axis.text.x = element_text(size = 20, colour = 'black', angle = 35, hjust = 1),
-                axis.text.y = element_text(size = 20, colour = 'black'),
-                axis.title = element_text(size = 20, colour = 'black'),
-                axis.title.y = element_text(margin = margin(t = 0, r = 40, b = 1, l = 0)), ##remove if using standalone instead of 2x2 figure
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) + 
+          ylab(expression(paste('Selection Ratio (', italic('w'[i]), ')'))) + coord_cartesian(ylim = c(0,7)) +
+          theme(axis.text.x = element_text(size = 16, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 16, colour = 'black'),
+                axis.title = element_text(size = 16, colour = 'black'),
+                #axis.title.y = element_text(margin = margin(t = 0, r = 40, b = 1, l = 0), unit = 'pt'), ##remove if using standalone instead of 2x2 figure
                 axis.title.x = element_blank(), axis.title.y = element_text(margin = margin(0,16,0,0)),
-                axis.ticks = element_line(colour = 'black', size = 1),
+                axis.ticks = element_line(colour = 'black', size = 0.8),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
                 panel.background = element_rect(fill = 'white'),
-                plot.margin=unit(c(0.75,0.25,0.5,0.5), "cm")) + ##change back to 'c(0.75, 0.5, 0.5, 0.5)' if using standalone instead of 2x2 figure
+                plot.margin=unit(c(0.5,0.25,0.5,0.5), "cm")) + ##change back to 'c(0.75, 0.5, 0.5, 0.5)' if using standalone instead of 2x2 figure
           geom_text(label ='*', aes(x = 7, y = 2), size = 12, colour = 'grey40') +
-          geom_text(label = 'B', aes(x = 9, y = 6.7), size = 8)
-w2_sr 
+          geom_text(label = 'B', aes(x = 9, y = 6.6), size = 8) 
+winter_2
 
+title1 <- textGrob("2nd order", gp = gpar(fontface = "bold"))
 grid.arrange(s2_sr, w2_sr, ncol = 1) ## export at 600 wide x 700 high
 
 # count points not shown (outliers) and find which veg class they're from, for captions:
 sr_2s[sr_2s$sel_ratio > 6,]
 sr_2w[sr_2w$sel_ratio > 6,]
+
 # ----------------------------------------------------------------
 ##    b. 3rd order
 # ----------------------------------------------------------------
 
-sr_3s <- reshape(sel_ratios_3[[2]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[2]]))
-sr_3s$rank <- ranks_3[[2]][match(sr_3s$veg, ranks_3[[2]]$veg), 'pos_r']
-max(sr_3s$sel_ratio[is.finite(sr_3s$sel_ratio)])
+sr_3s <- reshape(sel_ratios_3[[2]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[2]]), ids = rownames(sel_ratios_3[[2]]))
+  sr_3s$rank <- ranks_3[[2]][match(sr_3s$veg, ranks_3[[2]]$veg), 'pos_r']
+  sr_3s <- merge(x = sr_3s, y = obs_by_veg_sum, by.x = c('id', 'veg'), by.y = c('id','veg'), all.x = TRUE)
+  max(sr_3s$sel_ratio[is.finite(sr_3s$sel_ratio)])
 
-sr_3w <- reshape(sel_ratios_3[[3]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[3]]))
-sr_3w$rank <- ranks_3[[3]][match(sr_3w$veg, ranks_3[[3]]$veg), 'pos_r']
-max(sr_3w$sel_ratio[is.finite(sr_3w$sel_ratio)]) #don't need to remove outliers
+sr_3w <- reshape(sel_ratios_3[[3]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[3]]), ids = rownames(sel_ratios_3[[3]]))
+  sr_3w$rank <- ranks_3[[3]][match(sr_3w$veg, ranks_3[[3]]$veg), 'pos_r']
+  sr_3w <- merge(x = sr_3w, y = obs_by_veg_win, by.x = c('id', 'veg'), by.y = c('id','veg'), all.x = TRUE)
+  max(sr_3w$sel_ratio[is.finite(sr_3w$sel_ratio)]) #don't need to remove outliers
 
-s3_sr <- ggplot(data = sr_3s, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+summer_3 <- ggplot(data = sr_3s, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
           stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
-          geom_point(data = sr_3s, aes(x = reorder(veg, rank), y = sel_ratio), position = position_dodge(0.8), size = 2) +
+          geom_point(data = sr_3s, aes(x = reorder(veg, rank), y = sel_ratio, size = freq), position = position_dodge(0.8)) +
+          scale_size_continuous(range = c(1,4), guide = FALSE) +
+     #       geom_point(data = sr_3s[sr_3s$id == '15.01',], size = 3, color = 'red') + ##just to compare outliers
+     #       geom_point(data = sr_3s[sr_3s$id == '15.09',], size = 3, color = 'blue') + ##just to compare outliers
           scale_fill_grey(start = 0.8, end = 0.8, guide = FALSE) +
-          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + 
-          ylab(expression(Selection~Ratio~(w[i]))) + coord_cartesian(ylim = c(0,7)) +
-          theme(axis.text.x = element_text(size = 20, colour = 'black', angle = 35, hjust = 1),
-                axis.text.y = element_text(size = 20, colour = 'black'),
-                axis.title.y = element_blank(), ## remove this and incude the following line for y-axis label
-                #axis.title = element_text(size = 20, colour = 'black'),
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) + 
+          ylab(expression(paste('Selection Ratio (', italic('w'[i]), ')'))) + coord_cartesian(ylim = c(0,7)) +
+          theme(axis.text.x = element_text(size = 16, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 16, colour = 'black'),
+              #  axis.title.y = element_blank(), ## remove this and incude the following line for y-axis label
+                axis.title = element_text(size = 16, colour = 'black'),
                 axis.title.x = element_blank(), axis.title.y = element_text(margin = margin(0,16,0,0)),
-                axis.ticks = element_line(colour = 'black', size = 1),
+                axis.ticks = element_line(colour = 'black', size = 0.8),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
                 panel.background = element_rect(fill = 'white'),
-                plot.margin=unit(c(0.8,0.25,0.75,1.8), "cm")) + ##change back to 'c(0.8,0.5,0.75,0.5)' if including y-axis label
+                plot.margin=unit(c(0.5,0.25,0.5,0.5), "cm")) + ##change back to 'c(0.8,0.5,0.75,0.5)' if including y-axis label
           geom_text(label ='*', aes(x = 8, y = 2), size = 12, colour = 'grey40') +
-          geom_text(label = 'C', aes(x = 9, y = 6.7), size = 8) 
-s3_sr 
+          geom_text(label = 'C', aes(x = 9, y = 6.6), size = 8)
+summer_3 
 
-w3_sr <- ggplot(data = sr_3w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+winter_3 <- ggplot(data = sr_3w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
           stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
-          geom_point(position = position_dodge(0.8), size = 2) +
+          geom_point(data = sr_3w, aes(size = freq), position = position_dodge(0.8)) +
+          scale_size_continuous(range = c(1,4), guide = FALSE) +
           scale_fill_grey(start = 0.8, end = 0.8, guide = FALSE) +
-          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + ylim(0,6) +
-          ylab(expression(Selection~Ratio~(w[i]))) + coord_cartesian(ylim = c(0,7)) +
-          theme(axis.text.x = element_text(size = 20, colour = 'black', angle = 35, hjust = 1),
-                axis.text.y = element_text(size = 20, colour = 'black'),
-                axis.title.y = element_blank(),
-                #axis.title = element_text(size = 20, colour = 'black'),
-                axis.title.x = element_blank(), axis.title.y = element_text(margin = margin(0,16,0,0)),
-                axis.ticks = element_line(colour = 'black', size = 1),
+          geom_hline(yintercept = 1, linetype = 'dashed', lwd = 0.8) +
+          ylab(expression(paste('Selection Ratio (', italic('w'[i]), ')'))) + coord_cartesian(ylim = c(0,7)) +
+          theme(axis.text.x = element_text(size = 16, colour = 'black', angle = 35, hjust = 1),
+                axis.text.y = element_text(size = 16, colour = 'black'),
+          #      axis.title.y = element_blank(),
+                axis.title = element_text(size = 16, colour = 'black'),
+                axis.title.x = element_blank(), 
+           #     axis.title.y = element_text(margin = margin(0,16,0,0)),
+                axis.ticks = element_line(colour = 'black', size = 0.8),
                 axis.line.x = element_line(size = 0.5, colour = 'black'),
                 axis.line.y = element_line(size = 0.5, colour = 'black'),
                 panel.background = element_rect(fill = 'white'),
-                plot.margin=unit(c(0.75,0.25,0.5,1.8), "cm")) + ##change back to 'c(0.75,0.5,0.5,0.5)' if including y-axis label
-          geom_text(label = 'D', aes(x = 9, y = 6), size = 8)  
-w3_sr   
+                plot.margin=unit(c(0.5,0.25,0.5,0.5), "cm")) +  ##change back to 'c(0.75,0.5,0.5,0.5)' if including y-axis label (top/right/bottom/left)
+          geom_text(label = 'D', aes(x = 9, y = 6.6), size = 8)  
+winter_3
 
 grid.arrange(s3_sr, w3_sr, ncol = 1) ## export at 600 wide x 700 high
 
 # count points not shown (outliers) and find which veg class they're from, for captions:
 sr_3s[sr_3s$sel_ratio[is.finite(sr_3s$sel_ratio)] > 7,]
 sr_3w[sr_3w$sel_ratio[is.finite(sr_3w$sel_ratio)] > 7,]
+
+# ----------------------------------------------------------------
+##    c. try making a panel figure to combine 2nd and 3rd order
+# ----------------------------------------------------------------
+
+# install.packages("devtools")
+# devtools::install_github("thomasp85/patchwork")
+# library(patchwork)
+
+## couldn't get it to install but seems like a neat package
+# sr_2s + sr_2w
+
+## try with grid.arrange:
+
+grob.left1 <- textGrob('Summer', gp = gpar(fontsize = 20), rot = 90) #fontface = 'bold' in gpar
+grob.left2 <- textGrob('Winter', gp = gpar(fontsize = 20), rot = 90)
+
+toprow <- grid.arrange(summer_2, summer_3, left = grob.left1, widths = c(1,1), padding = unit(1, 'line'))
+bottomrow <- grid.arrange(winter_2, winter_3, left = grob.left2, widths = c(1,1), padding = unit(1, 'line'))
+
+  c1 <- ''
+  c2 <- expression(paste('2'^'nd ', order)) # for bold: expression(paste(bold('2'^'nd '), bold(~order)))
+  c3 <- expression(paste('3'^'rd ', order))
+  df <- data.frame(NA, NA, NA)
+  colnames(df) <- c(c1,c2,c3)   ## must be better way to do this
+  # Define theme to parse plotmath expressions
+  tt = ttheme_default(core = list(fg_params = list(parse=TRUE, cex = 1.7, fontface = 'bold'),
+                                  bg_params = list(fill = 'grey80', col = 'grey80')))
+  toplabels <- tableGrob(t(colnames(df)), theme = tt)
+
+grid.newpage()
+wca.panel <- grid.draw(grobTree(rectGrob(gp = gpar(fill="grey80", lwd = 0, col = 'grey80')), 
+                   rbind(toplabels, toprow, bottomrow, size = 'last')))
+
+wca.panel
+## export as PDF (6.5 x 10 landscape) or png/tiff 1000 x 650
 
 # ----------------------------------------------------------------
 ##  10. Create some cool figures for presentation
