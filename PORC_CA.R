@@ -1,0 +1,979 @@
+## COMPOSITIONAL ANALYSIS FOR PORCUPINE HABITAT SELECTION
+## (Just based on points, not the UD grid)
+
+## FINAL DATA OBJECTS:
+sel_means_2
+sel_means_3
+sel_ratios_2
+sel_ratios_3
+wilks_results_2
+wilks_results_3
+ranks_2
+ranks_3
+ttest_sig_2 #also exported as .csv
+ttest_sig_3 #also exported as .csv
+
+## FINAL FIGURES:
+s2_sr
+w2_sr
+s3_sr
+w3_sr #selection ratio floating bar plots (geomean w/ CI) with geom_points
+
+library(googlesheets)
+library(adehabitatHR)
+library(rgdal)
+library(raster)
+library(rgeos)
+library(reshape)
+library(dplyr)
+library(adehabitatHS)
+library(rrcov)
+library(psych) # for geometric.mean
+library(ggplot2)
+library(lattice)
+library(gridExtra)
+
+# ----------------------------------------------------------------
+# 1. First, load porcupine location data & veg data
+# ----------------------------------------------------------------
+
+## load points used for thesis (<= 4 Sept 2016 with 1 GPS point per 24 h)
+porc.locs <- read.csv('csvs/porc_locs_thesis_final.csv')
+porc.locs$date <- as.Date(porc.locs$date)
+porc.locs$id <- as.factor(porc.locs$id)
+
+## subset summer locations (before Nov 1 or after March 1) and winter (between Nov 1 and March 1)
+sum.cutoff <- '2015-11-01' 
+win.cutoff <- '2016-03-01'
+sum.locs <- porc.locs[(porc.locs$date < sum.cutoff) | (porc.locs$date >= win.cutoff), ]
+win.locs <- porc.locs[(porc.locs$date >= sum.cutoff) & (porc.locs$date < win.cutoff), ]
+
+## Keep only animals with >= 5 locations in each season (and overall; this only applies to 16.16)
+n <- table(sum.locs$id)
+sum.locs <- subset(sum.locs, id %in% names(n[n >= 5]), drop=TRUE)
+sum.locs <- droplevels(sum.locs)
+
+n <- table(win.locs$id)
+win.locs <- subset(win.locs, id %in% names(n[n >= 5]), drop=TRUE)
+win.locs <- droplevels(win.locs)
+
+n <- table(porc.locs$id)
+porc.locs <- subset(porc.locs, id %in% names(n[n >= 5]), drop=TRUE)
+porc.locs <- droplevels(porc.locs)
+
+## export points as shapefile for making figure in ArcMap
+porc.locs.sp <- SpatialPointsDataFrame(data.frame(porc.locs$utm_e, porc.locs$utm_n),
+                                       data = data.frame(porc.locs),
+                                       proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+writeOGR(porc.locs.sp, dsn = 'Shapefiles/porc_locs_112216', layer = 'porc_locs_112216', driver = 'ESRI Shapefile')
+
+## Load veg data
+veg <- readOGR(dsn="shapefiles", layer="Veg categories CA", verbose=TRUE)
+proj4string(veg) <- CRS("+proj=utm +zone=10 +datum=NAD83")
+veg.ext <- readOGR(dsn="shapefiles", layer="Veg extent4", verbose=TRUE)
+proj4string(veg.ext) <- proj4string(veg)
+
+# ----------------------------------------------------------------
+# 2. Then, extract the UD using "adehabitatHR" package
+# ----------------------------------------------------------------
+
+## Calculate grid & extent based on desired cell size (# meters on each side) for each animal
+## separately. Also calculate UD based on summer points ONLY and winter points ONLY, but on 
+## the same grid as for all of the points. Then clip each UD to the combined outer 99/95% 
+## contour from all seasons, as well as the veg layer (study area) extent.
+
+ids <- unique(porc.locs$id)
+kde.areas <- list()
+kud.all <- list()
+overlap <- list()
+overlap.core <- list()
+outer_cont95 <- list()
+contours95 <- list()
+ud.list <- list()
+
+for (i in ids){
+      locs.i <- porc.locs[porc.locs$id == i,]
+      locs.i$season <- rep('all', nrow(locs.i))
+      locs.sum.i <- sum.locs[sum.locs$id == i,]
+      locs.sum.i$season <- rep('sum', nrow(locs.sum.i))
+      locs.win.i <- win.locs[win.locs$id == i,]
+      locs.win.i$season <- rep('win', nrow(locs.win.i))
+      locs.all.i <- rbind(locs.i, locs.sum.i, locs.win.i)
+      sp.i <- SpatialPointsDataFrame(data.frame(locs.all.i$utm_e, locs.all.i$utm_n),
+                                     data = data.frame(locs.all.i$season),
+                                     proj4string = CRS("+proj=utm +zone=10 +datum=NAD83"))
+      c = 10   ## desired cell size (meters)
+      fake.kern <- kernelUD(xy = sp.i, extent = 1)
+      spdf <- raster(as(fake.kern[[1]], "SpatialPixelsDataFrame"))
+      eas <- diff(range(spdf@extent[1:2]))
+      nor <- diff(range(spdf@extent[3:4]))
+      if(eas > nor){
+        g <- (eas/c)
+      } else {
+        g <- (nor/c)
+      }
+      
+      # calculate UD on all IDs ('all,' 'summer,' 'winter') on the same grid
+      kern.i <- kernelUD(xy = sp.i, h = 60, grid = g, extent = 1, same4all = TRUE)
+      kde.i <- kernel.area(kern.i, percent = c(50, 90, 95, 99), unin = "m", unout = "km2", standardize = TRUE)
+      data.frame(kde.i, row.names = c("50", "90", "95", "99"))
+      kde.areas[[i]] <- kde.i
+      kud.all[[i]] <- kern.i
+      
+      # calculate overlap using UDOI method ('UD overlap index' from Fieberg and Kochanny 2010)
+      overlap.i <- kerneloverlaphr(kern.i, method = 'UDOI', percent = 95, conditional = TRUE)
+      overlap.i.50 <- kerneloverlaphr(kern.i, method = 'UDOI', percent = 50, conditional = TRUE)
+      overlap[[i]] <- overlap.i
+      overlap.core[[i]] <- overlap.i.50
+      
+      # make 95% contours (full, summer, winter)
+      cont95 <- list()
+      for (j in names(kern.i)){
+        cont95.i <- getverticeshr.estUD(kern.i[[j]], percent = 95, unin = "m", unout = "km2", standardize = FALSE)
+        cont95[[j]] <- cont95.i
+      }
+      
+      ## merge all 3 contours to make a single contour based on the outermost boundary
+      outer_cont95.i <- raster::union(cont95[[1]], cont95[[2]])
+      if ((length(cont95)) > 2) {
+        outer_cont95.i <- raster::union(outer_cont95.i, cont95[[3]]) ## because not all have winter
+      }
+      
+      outer_cont95.i <- gUnaryUnion(outer_cont95.i) ## dissolve polygons but this gets rid of @data
+      outer_cont95.i <- gIntersection(outer_cont95.i, veg.ext, byid = F) ## because some contours go outside study area
+      outer_cont95.i@polygons[[1]]@ID <- 'homerange' ## so it will match when creating SPDF below
+      
+      ## create @data to make it a SPDF (necessary for later steps)
+      row_data <- data.frame('homerange', (outer_cont95.i@polygons[[1]]@Polygons[[1]]@area))
+      rownames(row_data) <- rep('homerange', nrow(row_data))
+      colnames(row_data) <- c('id', 'area')
+      outer_cont95.i <- SpatialPolygonsDataFrame(outer_cont95.i, data = row_data)
+      
+      ## store contours (access as follows: contours[[i]][[j]] where i = ID and j = 1:all, 2:sum, 3:win)
+      outer_cont95[[i]] <- outer_cont95.i ## store outer contours
+      contours95[[i]] <- cont95 ## store all contours
+      
+      # clip summer & winter UD grids to the 95% outer contour and veg extent
+      ud.i <- list()
+      for (j in names(kern.i)){
+        clipped.ud.i <- (kern.i[[j]])[outer_cont95.i,] ## outer boundary from ALL contours, see above
+        clipped.ud.i <- clipped.ud.i[veg.ext,]
+        ud.i[[j]] <- clipped.ud.i
+      }
+      ud.list[[i]] <- ud.i
+} 
+
+## cool figure! animal's entire home range and its use each season
+par(mfrow = c(1,3), oma = c(0,0,0,0), mar = c(0,0,0,0))
+image(ud.list$`16.17`$all)
+  plot(contours95$`16.17`$all, add = TRUE, border = 'black', lwd = 2)
+image(ud.list$`16.17`$sum)
+  plot(contours95$`16.17`$sum, add = TRUE, border = 'black', lwd = 2)
+image(ud.list$`16.17`$win)
+  plot(contours95$`16.17`$win, add = TRUE, border = 'black', lwd = 2)
+
+scalebar(500, xy = click(), type = 'bar', divs = 4, below = 'meters') ## click to place (magic!)
+text(0.1, 0.1, 'test')
+plot(ud.list$`16.18`$sum) ## 'plot' for grids, 'image' for gradient of UD
+
+# ----------------------------------------------------------------
+## 3. Assign values of covariates (veg classes)
+# ----------------------------------------------------------------
+plot(porc.locs.sp)
+plot(veg.ext, add = TRUE)
+
+## I've already removed animals with <5 locs, so make SPDFs and then combine data
+## (this is a good idea for just points-based CA too because otherwise an animal could have
+### 100% use in an area if we only found it once in winter, e.g.)
+spdf_sum <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
+                                   data = data.frame(sum.locs$id),
+                                   proj4string = CRS(proj4string(veg)))
+spdf_win <- SpatialPointsDataFrame(data.frame(win.locs$utm_e, win.locs$utm_n),
+                                   data = data.frame(win.locs$id),
+                                   proj4string = CRS(proj4string(veg)))
+spdf_all <- porc.locs.sp ## already made this one
+
+## overlay veg
+spdf_sum@data$veg <- over(spdf_sum, veg)$Class_4
+spdf_win@data$veg <- over(spdf_win, veg)$Class_4
+spdf_all@data$veg <- over(spdf_all, veg)$Class_4
+
+## add "season" column
+spdf_sum@data$season <- 'sum'
+spdf_win@data$season <- 'win'
+spdf_all@data$season <- 'all'
+
+## create dataframes
+sum_pts <- data.frame(spdf_sum@data, spdf_sum@coords)
+  colnames(sum_pts) <- c('id', 'veg', 'season', 'x', 'y')
+win_pts <- data.frame(spdf_win@data, spdf_win@coords)
+  colnames(win_pts) <- c('id', 'veg', 'season', 'x', 'y')
+all_pts <- data.frame(spdf_all@data, spdf_all@coords)
+  all_pts <- all_pts[,c(3, 10:13)]
+  colnames(all_pts) <- c('id', 'veg', 'season', 'x', 'y')
+  
+## combine into one dataframe
+veg_over_pts <- rbind(sum_pts, win_pts, all_pts)
+
+## remove rows where veg = NA (will take care of pts outside the park)
+veg_over_pts <- veg_over_pts[!is.na(veg_over_pts$veg),] 
+
+# ----------------------------------------------------------------
+## 5. Create matrix of use proportions
+##    a. 2nd and 3rd order (total points per veg type / total points)
+# ----------------------------------------------------------------
+use_pts <- list()
+for (j in seasons){
+    pts <- veg_over_pts[veg_over_pts$season == j,]
+    ids <- unique(pts$id)
+    substr(ids, start = 1, stop = 5)
+    pts.season <- NULL
+      for (i in ids){
+        pts.id <- pts[pts$id == i,]
+        pts.id <- table(pts.id$veg)
+        pts.id <- data.frame('veg' = rownames(pts.id), 'pts' = pts.id[1:9])
+        rownames(pts.id) <- NULL
+        pts.id$prop_used <- pts.id$pts / sum(pts.id$pts)
+        pts.id$id <- rep(i, nrow(pts.id))
+        pts.id <- pts.id[,c(1, 3:4)]
+        pts.season <- rbind(pts.season, pts.id)
+    }
+  usepts <- cast(pts.season, id ~ veg, value = 'prop_used', fun.aggregate = NULL)
+  use <- data.frame('id'=character(0), 'beach'=numeric(0), 'coastal scrub'=numeric(0), 'conifer forest'=numeric(0), 'dune'=numeric(0), 'fruit'=numeric(0), 'marsh'=numeric(0),
+                    'meadow'=numeric(0), 'pasture'=numeric(0), 'swale'=numeric(0))
+  colnames(use) <- gsub('[.]', ' ', colnames(use))
+  use <- bind_rows(use, usepts)
+  use_pts[[j]] <- data.frame(use[,-1], row.names = use$id)
+  colnames(use_pts[[j]]) <- gsub('[.]', ' ', colnames(use_pts[[j]])) ## why do I have to do this again...
+  #use_pts[[j]][use_pts[[j]] == 0] <- NA ## for 2nd-order compana only? see below. 0s are also problematic even if they're true.
+  #use_pts[[j]][is.na(use_pts[[j]])] <- 0 ## what to change NAs to? *see below
+}
+
+## find smallest non-zero value of use using the code below, but don't change it here (leave it
+## as Inf/0; we'll match use with avail. below to replace with either 1e-07 or the mean)
+min(apply(use_pts[[3]], 1, FUN = function(x) {min(x[x > 0])})) # replacing j with 1, 2, 3
+## looks like 0.011
+
+## * If using 'use_2' for function 'compana,' keep NAs as NA (or 0?); 'compana' will replace them automatically.
+## * But if doing manually: 
+##    - If availability != 0 but use = 0, this is meaningful (in the case of 2nd order, and some winter 3rd order). 
+##      However, 0 will become -Inf in the log-ratio, so we need to replace it with a small nonzero number.
+##      (I'll use 1e-10) ** Keep as 0/NA for now becuase I'll replace below (7a. step I)
+##      Aebischer: it should be smaller than the smallest non-zero number. (can remove 0 and use min())
+##    - If availability = 0 and use = 0 (common in 3rd order): leave it as NA (or 0?) here.
+##      We will later replace missing log-ratio values with the mean of remaing log-ratios per veg type.
+
+# ----------------------------------------------------------------
+## 6. Create matrix of availability data
+##    a. For the entire study area (2nd order)
+# ----------------------------------------------------------------
+
+veg.area <- gArea(veg, byid = TRUE) ## calculates areas of all the polygons (in m^2?)
+veg.df <- data.frame('veg' = veg$Class_4, 'area' = veg.area)
+
+veg_sum <- aggregate(area ~ veg, data = veg.df, FUN = sum) ## sum areas by veg type
+veg_prop <- veg_sum$area / sum(veg_sum$area)
+veg_prop <- t(veg_prop) ## transpose
+
+## make list of matrices to match with use data (one per season); availability is the same but this helps b/c the IDs are different
+avail_2 <- list()
+for (j in seasons){
+  avail_data_2 <- matrix(rep(veg_prop, nrow(use_2[[j]])), nrow = nrow(use_2[[j]]), byrow = TRUE)
+  colnames(avail_data_2) <- veg_sum$veg
+  rownames(avail_data_2) <- rownames(use_2[[j]])
+  avail_2[[j]] <- avail_data_2
+}
+
+# ----------------------------------------------------------------
+##    b. For each animal's home range (3rd order), i.e., its 95/99% outer contour (contours95[[]])
+##    (Similar to 'use' for 2nd order, above in 5a., but avail. is the same for all seasons)
+# ----------------------------------------------------------------
+ids <- unique(porc.locs$id)
+veg_home_ranges <- list()
+avail_list_3 <- NULL
+
+for (i in ids){
+  cont95.i <- outer_cont95[[i]]
+    clip.i <- gIntersection(cont95.i, veg, byid = T) #this is just a SpatialPolygons (no data)
+    row.names(clip.i) <- gsub("homerange ", "", row.names(clip.i))    
+    keep <- row.names(clip.i)
+    clip.i <- spChFIDs(clip.i, keep) #changes feature IDs in the SP
+    clip.data <- as.data.frame(veg@data[keep,]) #this is what we'll add as @data to the SPDF
+    clip.spdf <- SpatialPolygonsDataFrame(clip.i, clip.data)  #this is fixed!
+    clip.spdf <- clip.spdf[!is.na(clip.spdf@data$Class_4),] #get rid of NAs
+  veg_home_ranges[[i]] <- clip.spdf ## store veg SPDF clipped to home ranges
+    area.all <- gArea(clip.spdf, byid = TRUE) #units should be m^2
+    veg.df.i <- data.frame('veg' = clip.spdf$Class_4, 'area' = area.all)
+    veg_sum_i <- aggregate(area ~ veg, data = veg.df.i, FUN = sum) ## sum areas by veg type
+    veg_prop_i <- veg_sum_i$area / sum(veg_sum_i$area)
+    veg_prop_i <- (t(veg_prop_i))
+    colnames(veg_prop_i) <- veg_sum_i$veg
+    veg_prop_i <- data.frame(i, veg_prop_i)
+  avail_list_3 <- bind_rows(avail_list_3, veg_prop_i) ## 'coercing to character' error OK
+}
+
+## create a list with levels for each season (each animal's availability is the same each season, 
+## but the matrices will have different # animals)
+avail_3 <- list()
+for (j in seasons){
+  avail_3[[j]] <- data.frame(avail_list_3[,-1], row.names = avail_list_3$i)
+  colnames(avail_3[[j]]) <- gsub('[.]', ' ', colnames(avail_3[[j]])) ## add veg types as colnames
+  avail_3[[j]][is.na(avail_3[[j]])] <- 0 ## change NAs in avail to 0 for compana (is this right?)
+}
+
+## restrict IDs to those in each season; do this each time seasonal cutoff is changed. Better way to do this?
+unique(win.locs$id)
+avail_3$win <- avail_3$win[-c(4:6, 8:10, 18:19),]
+
+# ----------------------------------------------------------------
+## 6. Try compositional analysis ('compana' in package adehabitatHS)
+##    a. 2nd order
+# ----------------------------------------------------------------
+
+## these are done BEFORE 0 use values are dealt with (below); retry after Step 7 (I.)
+compana_all_2 <- compana(use_pts[[1]], avail_2[[1]], test = 'randomisation', rnv = 0.000001, nrep = 10000, alpha = 0.05)
+compana_sum_2 <- compana(use_pts[[2]], avail_2[[2]], test = 'randomisation', rnv = 0.000001, nrep = 10000, alpha = 0.05)
+compana_win_2 <- compana(use_pts[[3]], avail_2[[3]], test = 'randomisation', rnv = 0.000001, nrep = 10000, alpha = 0.05)
+
+## eigen visual analysis
+(eis <- eisera(use_pts$sum, avail_2$sum, scannf = FALSE))
+barplot(eis$eig) ## what does this tell us?
+scatter(eis)
+
+# ----------------------------------------------------------------
+##    b. 3rd order 
+# ----------------------------------------------------------------
+## ** check NA/0 values in use/avail data above before running (need to be replaced by 1e-10, e.g., for compana)
+compana_all_3 <- compana(use_pts[[1]], avail_3[[1]], test = 'randomisation', rnv = 0.000001, nrep = 10000, alpha = 0.05)
+compana_sum_3 <- compana(use_pts[[2]], avail_3[[2]], test = 'randomisation', rnv = 0.000001, nrep = 10000, alpha = 0.05)
+compana_win_3 <- compana(use_pts[[3]], avail_3[[3]], test = 'randomisation', rnv = 0.000001, nrep = 10000, alpha = 0.05)
+
+## eigen visual analysis
+(eis <- eisera(use_pts[[3]], avail_3[[3]], scannf = FALSE))
+barplot(eis$eig)
+scatter(eis)
+
+# ----------------------------------------------------------------
+## 7. Do compositional analysis by hand (ala Erickson et al. 2001 matrices, steps from Pendeleton et al. 1998)
+##    a. 2nd order
+## ** Go back and check that NAs in 'use' are kept as 0/NA and not 1e-10 (line ~204). I'll replace them here after checking whether avail = 0.
+# ----------------------------------------------------------------
+
+## write function for confidence intervals on geometric mean (based on ci.gm from package survJamda)
+ci.gm <- function(x){
+  gm1 = mean(log(x), na.rm = T) ## ok that this isn't exp(mean(log(x))) ?
+  cil = exp(gm1-(1.96*(sd(log(x), na.rm = T)/sqrt(length(x)))))
+  ciupp = exp(gm1+(1.96*(sd(log(x), na.rm = T)/sqrt(length(x)))))
+  vec = c(round(cil,4), round(ciupp,4))
+  return (vec)
+}
+
+## 2nd: I) Compute selection ratios (prop. use / prop. avail) and their geometric means per veg type
+use_avail_2 <- list()
+sel_ratios_2 <- list()
+sel_means_2 <- list()
+
+for (j in seasons){
+      use.j <- data.frame(use_pts[[j]]) 
+      use.j$id <- rownames(use.j)
+      use <- reshape(use.j, varying = 1:9, direction = 'long', v.names = 'used_prop', timevar = 'veg',
+                     idvar = 'id', times = colnames(use.j[,1:9]))
+      avail.j <- data.frame(avail_2[[j]])
+      avail.j$id <- rownames(avail.j)
+      avail <- reshape(avail.j, varying = 1:9, direction = 'long', v.names = 'avail_prop', timevar = 'veg',
+                       idvar = 'id', times = colnames(avail.j[,1:9]))
+      use_avail <- use
+      use_avail$avail_prop <- avail$avail_prop ## combine use and availability data
+      rownames(use_avail) <- NULL
+    ## What to do with 0 use values? There should be no 0 avail values in 2nd order!
+      x <- nrow(use_avail[use_avail$avail_prop != 0 & use_avail$used_prop == 0,])
+      use_avail$used_prop[use_avail$avail_prop != 0 & use_avail$used_prop == 0] <- runif(x, 1e-04, 1.1e-04) #it really IS no use, but 0 will throw off log-ratios (see step 3 to find this value). Use a random number so they're not all the same; will throw off t-tests below
+    ## Compute selection ratios: used_prop / avail_prop
+      use_avail$sel_ratio <- use_avail$used_prop / use_avail$avail_prop
+      use_avail_2[[j]] <- use_avail ## store
+    ## Rearrange into matrix and take geometric means of selection ratios across animals
+      sel_ratios <- use_avail[c(1:2, 5)]
+      sel_ratios <- reshape(sel_ratios, timevar = 'veg', idvar = 'id', direction = 'wide')
+      names(sel_ratios) <- gsub('sel_ratio.', '', names(sel_ratios))
+      names(sel_ratios) <- gsub('[.]', ' ', names(sel_ratios))
+      rownames(sel_ratios) <- sel_ratios$id
+      sel_ratios <- sel_ratios[,-1]
+      sel_ratios_2[[j]] <- sel_ratios #store
+      mean.ci <- NULL  
+      for (k in 1:length(sel_ratios)){
+        # sel_ratios[is.na(sel_ratios[,k]), k] <- mean(sel_ratios[,k], na.rm = TRUE) ## this will reduce error...
+        #geo.mean <- geometric.mean(sel_ratios[,k]) # this removes NAs automatically
+        geo.mean <- (prod(sel_ratios[,k]))^(1/(length(sel_ratios[,k])))
+        geo.ci <- ci.gm(sel_ratios[,k][is.finite(sel_ratios[,k])])
+        geo.ci <- t(data.frame(geo.ci))
+        colnames(geo.ci) <- c('lci', 'uci')
+        mean.ci <- rbind(mean.ci, data.frame(geo.ci, geo.mean, row.names = names(sel_ratios)[k]))  
+      }
+    sel_means_2[[j]] <- mean.ci #store geometric means with CI
+}
+
+write.csv(sel_means_2$sum, 'csvs/sel_means/010517/ca_sel_means_2_sum.csv')
+write.csv(sel_means_2$win, 'csvs/sel_means/010517/ca_sel_means_2_win.csv')
+
+## Also rearrange 'sel_ratios_2$used_prop' and '$avail_prop' into matrix form. We can't just use
+## 'use_2' and 'avail_2' for the log-transformed ratios because we replaced the 0/NA values above
+## Rearrange into matrix and take geometric means of selection ratios across animals
+
+use_prop_2 <- NULL
+avail_prop_2 <- NULL
+for (j in seasons){
+  use_prop <- use_avail_2[[j]][c(1:3)]
+  use_prop <- reshape(use_prop, timevar = 'veg', idvar = 'id', direction = 'wide')
+  names(use_prop) <- gsub('used_prop.', '', names(use_prop))
+  names(use_prop) <- gsub('[.]', ' ', names(use_prop))
+  rownames(use_prop) <- use_prop$id
+  use_prop <- use_prop[,-1]
+  use_prop_2[[j]] <- use_prop #store
+  avail_prop <- use_avail_2[[j]][c(1,2, 4)]
+  avail_prop <- reshape(avail_prop, timevar = 'veg', idvar = 'id', direction = 'wide')
+  names(avail_prop) <- gsub('avail_prop', '', names(avail_prop))
+  names(avail_prop) <- gsub('[.]', ' ', names(avail_prop))
+  rownames(avail_prop) <- avail_prop$id
+  avail_prop <- avail_prop[,-1]
+  avail_prop_2[[j]] <- avail_prop #store 
+}
+
+## 2nd: II) Log-transform the use & available proportions in relation to a reference category
+log_use_2 <- list()
+log_avail_2 <- list()
+d_matrix_2 <- list()
+
+for (j in seasons){
+  log_use_2[[j]] <- log(use_prop_2[[j]] / use_prop_2[[j]][,4]) ## can change ref category here
+  log_avail_2[[j]] <- log(avail_prop_2[[j]] / avail_prop_2[[j]][,4])
+  d_matrix_2[[j]] <- log_use_2[[j]] - log_avail_2[[j]]      
+}
+## *** WHAT IS THIS USED FOR? ###
+
+## 2nd: III) Do Wilk's test for for overall selection (use different from random)
+wilks_results_2 <- list() ## store Wilk's lambda results by season
+for (j in seasons){
+  use_avail_j <- use_avail_2[[j]]
+  groups <- as.factor(use_avail_j$veg)
+  x <- as.matrix(use_avail_j[,3:4])
+  wilks_j <- Wilks.test(x, grouping = groups, method = 'c') ## which method?
+  wilks_results_2[[j]] <- wilks_j
+}
+
+## 2nd: IV) Pairwise tests to rank habitat types by relative use. Each category is used as the
+##          denominator in the log-ratio transformation, then t-tests are computed on the 
+##          differences in mean log-ratio between that category and all other categories (the 
+##          'd' matrix). We're testing for nonrandom use using a one-sample t-test (H0: mu= 0),
+##          which is actually the same as a paired t-test between each category and the reference
+##          category. (as in Aebischer et al. 1993 and Pendleton et al. 1998)
+ttests_2 <- list()
+ranks_2 <- list()
+
+for (j in seasons){
+  ranks_r <- NULL
+  ttests_r <- NULL
+  for (r in 1:9){
+    log_use <- log(use_prop_2[[j]] / use_prop_2[[j]][,r]) ## 'r' is ref category here
+    log_avail <- log(avail_prop_2[[j]] / avail_prop_2[[j]][,r])
+    d_matrix <- log_use - log_avail
+    ttests_rs <- NULL
+    ranks_j <- NULL
+    for (s in 1:9){
+      d_matrix[is.na(d_matrix[,s]), s] <- mean(d_matrix[,s], na.rm = TRUE) ## should this be geometric.mean? but we have negative log ratios
+      ttest_s <- t.test(d_matrix[,s], mu = 0)
+      ttest_s_df <- data.frame(r, s, ttest_s$estimate, ttest_s$conf.int[1], ttest_s$conf.int[2], ttest_s$p.value)
+      colnames(ttest_s_df) <- c('r', 's', 'mean_diff', 'lci_95', 'uci_95', 'p')
+      ttests_rs <- bind_rows(ttests_rs, ttest_s_df) ## store
+    }
+    pos_r <- nrow(ttests_rs[ttests_rs$mean_diff > 0,]) ## how many positive means for this 'r' (veg type as reference)?
+    ranks_r <- rbind(ranks_r, data.frame(r, pos_r))
+    ttests_r <- rbind(ttests_r, ttests_rs)
+  }
+  veg_key <- data.frame('veg' = (names(d_matrix)), 'veg_id' = 1:length(d_matrix))
+  ttests_r$veg1 <- veg_key[match(ttests_r$r, veg_key$veg_id), 'veg'] # match veg names
+  ttests_r$veg2 <- veg_key[match(ttests_r$s, veg_key$veg_id), 'veg'] # match veg names
+  ranks_r$veg <- veg_key[match(ranks_r$r, veg_key$veg_id), 'veg']
+  ttests_2[[j]] <- ttests_r 
+  ranks_2[[j]] <- data.frame(ranks_r[,c(3, 2)]) # 0 is the most selected and 8 is the least
+}
+
+## 2nd: V) Create table of significance codes based on t-tests (see Beasley et al. 2007 for example)
+##    There must be a more elegant way than all these brackets!
+##    Would be nice to sort these in order based on the rankings in d_means_2[[j]]
+
+ttest_sig_2 <- list()
+for (j in seasons){
+  tests_j <- ttests_2[[j]][,c(3, 6:8)]
+  tests_j$sig[tests_j$mean_diff > 0] <- '+'
+  tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '++'
+  tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '+++'
+  tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.001] <- '++++'
+  tests_j$sig[tests_j$mean_diff < 0] <- '\u2013' ## en dashes!
+  tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '\u2013 \u2013'
+  tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '\u2013 \u2013 \u2013'
+  tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '\u2013 \u2013 \u2013 \u2013'
+  matrix_j <- cast(tests_j, veg1 ~ veg2, value = 'sig')
+  ttest_sig_2[[j]] <- matrix_j
+}
+
+write.csv(ttest_sig_2[[2]], 'csvs/ttests_ranks/010517/ca_ttests_2nd_summer.csv')
+write.csv(ttest_sig_2[[3]], 'csvs/ttests_ranks/010517/ca_ttests_2nd_winter.csv')
+
+# ----------------------------------------------------------------
+##    b. 3rd order
+## ** Go back and check that NAs in 'use' are kept as 0/NA/Inf and not 1e-10 (line ~204). I'll replace them here after checking whether avail = 0.
+# ----------------------------------------------------------------
+
+## 3rd: I) Compute selection ratios (prop. use / prop. avail) and their geometric means per veg type
+use_avail_3 <- list()
+sel_ratios_3 <- list()
+sel_means_3 <- list()
+
+for (j in seasons){
+    use.j <- data.frame(use_pts[[j]])
+    use.j$id <- rownames(use.j)
+    use <- reshape(use.j, varying = 1:9, direction = 'long', v.names = 'used_prop', timevar = 'veg',
+                   idvar = 'id', times = colnames(use.j[,1:9]))
+    avail.j <- data.frame(avail_3[[j]])
+    avail.j$id <- rownames(avail.j)
+    avail <- reshape(avail.j, varying = 1:9, direction = 'long', v.names = 'avail_prop', timevar = 'veg',
+                     idvar = 'id', times = colnames(avail.j[,1:9]))
+    use_avail <- use
+    use_avail$avail_prop <- avail$avail_prop ## combine use and availability data
+    rownames(use_avail) <- NULL
+  ## What to do with 0 use values? 
+    x <- nrow(use_avail[use_avail$avail_prop != 0 & use_avail$used_prop == 0,])
+    use_avail$used_prop[use_avail$avail_prop != 0 & use_avail$used_prop == 0] <- runif(x, 1e-03, 1.1e-03) #it really IS no use, but 0 will throw off log-ratios (see step 3 to find this value). Use a random number so they're not all the same; will throw off t-tests below
+    use_avail$used_prop[use_avail$avail_prop == 0 & use_avail$used_prop == 0] <- NA #missing data; will replace with mean down below
+    use_avail$avail_prop[use_avail$avail_prop == 0] <- NA #missing data; will replace with mean down below
+  ## Compute selection ratios: used_prop / avail_prop
+    use_avail$sel_ratio <- use_avail$used_prop / use_avail$avail_prop
+    use_avail_3[[j]] <- use_avail ## store
+  ## Rearrange into matrix and take geometric means of selection ratios across animals
+    sel_ratios <- use_avail[c(1:2, 5)]
+    sel_ratios <- reshape(sel_ratios, timevar = 'veg', idvar = 'id', direction = 'wide')
+    names(sel_ratios) <- gsub('sel_ratio.', '', names(sel_ratios))
+    names(sel_ratios) <- gsub('[.]', ' ', names(sel_ratios))
+    rownames(sel_ratios) <- sel_ratios$id
+    sel_ratios <- sel_ratios[,-1]
+    sel_ratios_3[[j]] <- sel_ratios #store
+    mean.ci <- NULL  
+  for (k in 1:length(sel_ratios)){
+    # sel_ratios[is.na(sel_ratios[,k]), k] <- mean(sel_ratios[,k], na.rm = TRUE) ## this will reduce error...
+    geo.mean <- geometric.mean(sel_ratios[,k]) # this removes NAs automatically
+    geo.ci <- ci.gm(sel_ratios[,k][is.finite(sel_ratios[,k])])
+    geo.ci <- t(data.frame(geo.ci))
+    colnames(geo.ci) <- c('lci', 'uci')
+    mean.ci <- rbind(mean.ci, data.frame(geo.ci, geo.mean, row.names = names(sel_ratios)[k]))  
+  }
+  sel_means_3[[j]] <- mean.ci
+}
+
+## Also rearrange 'sel_ratios_3$used_prop' and '$avail_prop' into matrix form. We can't just use
+## 'use_3' and 'avail_3' for the log-transformed ratios because we replaced the 0/NA values above
+## Rearrange into matrix and take geometric means of selection ratios across animals
+
+use_prop_3 <- NULL
+avail_prop_3 <- NULL
+for (j in seasons){
+  use_prop <- use_avail_3[[j]][c(1:3)]
+  use_prop <- reshape(use_prop, timevar = 'veg', idvar = 'id', direction = 'wide')
+  names(use_prop) <- gsub('used_prop.', '', names(use_prop))
+  names(use_prop) <- gsub('[.]', ' ', names(use_prop))
+  rownames(use_prop) <- use_prop$id
+  use_prop <- use_prop[,-1]
+  use_prop_3[[j]] <- use_prop #store
+  avail_prop <- use_avail_3[[j]][c(1,2, 4)]
+  avail_prop <- reshape(avail_prop, timevar = 'veg', idvar = 'id', direction = 'wide')
+  names(avail_prop) <- gsub('avail_prop', '', names(avail_prop))
+  names(avail_prop) <- gsub('[.]', ' ', names(avail_prop))
+  rownames(avail_prop) <- avail_prop$id
+  avail_prop <- avail_prop[,-1]
+  avail_prop_3[[j]] <- avail_prop #store 
+}
+
+## 3rd: II) Log-transform the use & available proportions in relation to a reference category
+
+log_use_3 <- list()
+log_avail_3 <- list()
+d_matrix_3 <- list()
+
+for (j in seasons){
+  log_use_3[[j]] <- log(use_prop_3[[j]] / use_prop_3[[j]][,4]) ## can change ref category here
+  log_avail_3[[j]] <- log(avail_prop_3[[j]] / avail_prop_3[[j]][,4])
+  d_matrix_3[[j]] <- log_use_3[[j]] - log_avail_3[[j]]      
+}
+## *** WHAT IS THIS USED FOR? ###
+
+## 3rd: III) Doo Wilk's test for for overall selection (use different from random)
+wilks_results_3 <- list() ## store Wilk's lambda results by season
+for (j in seasons){
+  use_avail_j <- use_avail_3[[j]]
+  groups <- as.factor(use_avail_j$veg)
+  x <- as.matrix(use_avail_j[,3:4])
+  wilks_j <- Wilks.test(x, grouping = groups, method = 'c') ## which method?
+  wilks_results_3[[j]] <- wilks_j
+}
+
+## 3rd: IV) Pairwise tests to rank habitat types by relative use. Each category is used as the
+##          denominator in the log-ratio transformation, then t-tests are computed on the 
+##          differences in mean log-ratio between that category and all other categories (the 
+##          'd' matrix). We're testing for nonrandom use using a one-sample t-test (H0: mu= 0),
+##          which is actually the same as a paired t-test between each category and the reference
+##          category. (as in Aebischer et al. 1993 and Pendleton et al. 1998)
+
+ttests_3 <- list()
+ranks_3 <- list()
+
+for (j in seasons){
+  ranks_r <- NULL
+  ttests_r <- NULL
+  for (r in 1:9){
+    log_use <- log(use_prop_3[[j]] / use_prop_3[[j]][,r]) ## 'r' is ref category here
+    log_avail <- log(avail_prop_3[[j]] / avail_prop_3[[j]][,r])
+    d_matrix <- log_use - log_avail
+    ttests_rs <- NULL
+    ranks_j <- NULL
+    for (s in 1:9){
+      d_matrix[is.na(d_matrix[,s]), s] <- mean(d_matrix[,s], na.rm = TRUE) ## should this be geometric.mean? but we have negative log ratios
+      ttest_s <- t.test(d_matrix[,s], mu = 0)
+      ttest_s_df <- data.frame(r, s, ttest_s$estimate, ttest_s$conf.int[1], ttest_s$conf.int[2], ttest_s$p.value)
+      colnames(ttest_s_df) <- c('r', 's', 'mean_diff', 'lci_95', 'uci_95', 'p')
+      ttests_rs <- bind_rows(ttests_rs, ttest_s_df) ## store
+    }
+    pos_r <- nrow(ttests_rs[ttests_rs$mean_diff > 0,]) ## how many positive means for this 'r' (veg type as reference)?
+    ranks_r <- rbind(ranks_r, data.frame(r, pos_r))
+    ttests_r <- rbind(ttests_r, ttests_rs)
+  }
+  veg_key <- data.frame('veg' = (names(d_matrix)), 'veg_id' = 1:length(d_matrix))
+  ttests_r$veg1 <- veg_key[match(ttests_r$r, veg_key$veg_id), 'veg'] # match veg names
+  ttests_r$veg2 <- veg_key[match(ttests_r$s, veg_key$veg_id), 'veg'] # match veg names
+  ranks_r$veg <- veg_key[match(ranks_r$r, veg_key$veg_id), 'veg']
+  ttests_3[[j]] <- ttests_r 
+  ranks_3[[j]] <- data.frame(ranks_r[,c(3, 2)]) # 0 is the most selected and 8 is the least
+}
+
+## 3rd: V) Create table of significance codes based on t-tests (see Beasley et al. 2007 for example)
+##    There must be a more elegant way than all these brackets!
+##    Would be nice to sort these in order based on the rankings in d_means_2[[j]]
+
+ttest_sig_3 <- list()
+for (j in seasons){
+  tests_j <- ttests_3[[j]][,c(3, 6:8)]
+  tests_j$sig[tests_j$mean_diff > 0] <- '+'
+  tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '++'
+  tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '+++'
+  tests_j$sig[tests_j$mean_diff > 0 & tests_j$p <= 0.001] <- '++++'
+  tests_j$sig[tests_j$mean_diff < 0] <- '\u2013' ## en dashes!
+  tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.05 & tests_j$p > 0.01] <- '\u2013 \u2013'
+  tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.01 & tests_j$p > 0.001] <- '\u2013 \u2013 \u2013'
+  tests_j$sig[tests_j$mean_diff < 0 & tests_j$p <= 0.001] <- '\u2013 \u2013 \u2013 \u2013'
+  matrix_j <- cast(tests_j, veg1 ~ veg2, value = 'sig')
+  ttest_sig_3[[j]] <- matrix_j
+}
+
+write.csv(ttest_sig_3[[2]], 'csvs/ttests_ranks/010517/ca_ttests_3rd_summer.csv')
+write.csv(ttest_sig_3[[3]], 'csvs/ttests_ranks/010517/ca_ttests_3rd_winter.csv')
+
+# ----------------------------------------------------------------
+##  9. Box plots (selection ratios = proportional use / proportional availability)  
+##    - these are centered on 1, and veg types are ordered by their ranks (previously plotted this with 'log_ratios_2' instead of 'sel_ratios_2')
+##    a. 2nd order
+# ----------------------------------------------------------------
+
+## assign colors to veg classes for plotting:
+veg_class <- c('beach', 'dune', 'coastal scrub', 'conifer forest', 'fruit', 'marsh', 'meadow', 'pasture', 'swale')
+veg_colors <- c('khaki1', 'khaki3', 'khaki4', 'darkolivegreen4', 'coral1', 'aquamarine', 'yellow3', 'darkolivegreen3', 'darkseagreen3')
+colors <- data.frame(veg_class, veg_colors)
+colors$veg_colors <- as.character(colors$veg_colors)
+colnames(colors) <- c('veg', 'veg_colors')
+colors <- colors[order(colors$veg),] ## I think they need to be alphabetical to match properly in ggplot
+
+## create function to calculate geometric mean, CI, min, and max for the boxplots:
+geo.mean.ci <- function(x) {
+  w <- c(ci.gm(x)[1], ci.gm(x)[1], geometric.mean(x), ci.gm(x)[2], ci.gm(x)[2])
+  names(w) <- c('ymin', 'lower', 'middle', 'upper', 'ymax')  
+  w
+}
+
+## Reshape 'sel_ratios_2'
+sr_2s <- reshape(sel_ratios_2[[2]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_2[[2]]))
+sr_2s$rank <- ranks_2[[2]][match(sr_2s$veg, ranks_2[[2]]$veg), 'pos_r']
+max(sr_2s$sel_ratio)
+sr_2s_no <- sr_2s[sr_2s$sel_ratio < 10,] ## remove outlier points
+
+sr_2w <- reshape(sel_ratios_2[[3]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_2[[3]]))
+sr_2w$rank <- ranks_2[[3]][match(sr_2w$veg, ranks_2[[3]]$veg), 'pos_r']
+max(sr_2w$sel_ratio)
+#sr_2w_no <- sr_2w[sr_2w$sel_ratio < 10,] ## remove outlier points
+
+s2_sr <- ggplot(data = sr_2s_no, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+  stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
+  geom_point(data = sr_2s_no, position = position_dodge(0.8), size = 2) +
+  scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+  geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + #ylim(0, 6) +
+  xlab('Vegetation Class') + ylab(expression(Selection~Ratio~(w[i]))) + #ylim(0, 5) + ## *see note above
+  theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+        axis.text.y = element_text(size = 12, colour = 'black'),
+        axis.title = element_text(size = 12, colour = 'black'),
+        axis.line.x = element_line(size = 0.5, colour = 'black'),
+        axis.line.y = element_line(size = 0.5, colour = 'black'),
+        panel.background = element_rect(fill = 'white'),
+        plot.margin=unit(c(0.5,0.5,0.75,0.5), "cm")) +
+  geom_text(label ='*', aes(x = 1, y = 5.6), size = 8, colour = 'grey40') +
+  geom_text(label = 'A', aes(x = 9, y = 5.8), size = 8) 
+s2_sr
+
+w2_sr <- ggplot(data = sr_2w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+  stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
+  geom_point(data = sr_2w, position = position_dodge(0.8), size = 2) +
+  scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+  geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) +
+  xlab('Vegetation Class') + ylab(expression(Selection~Ratio~(w[i]))) + 
+  theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+        axis.text.y = element_text(size = 12, colour = 'black'),
+        axis.title = element_text(size = 12, colour = 'black'),
+        axis.line.x = element_line(size = 0.5, colour = 'black'),
+        axis.line.y = element_line(size = 0.5, colour = 'black'),
+        panel.background = element_rect(fill = 'white'),
+        plot.margin=unit(c(0.75,0.5,0.5,0.5), "cm")) +
+  #geom_text(label ='*', aes(x = 7, y = 5.7), size = 8, colour = 'grey40') +
+  geom_text(label = 'B', aes(x = 9, y = 5.8), size = 8)
+w2_sr 
+
+grid.arrange(s2_sr, w2_sr, ncol = 1) ## export at 600 wide x 700 high
+
+# ----------------------------------------------------------------
+##    b. 3rd order
+# ----------------------------------------------------------------
+
+sr_3s <- reshape(sel_ratios_3[[2]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[2]]))
+sr_3s$rank <- ranks_3[[2]][match(sr_3s$veg, ranks_3[[2]]$veg), 'pos_r']
+max(sr_3s$sel_ratio[is.finite(sr_3s$sel_ratio)]) #don't need to remove outliers
+sr_3s_no <- sr_3s[sr_3s$sel_ratio < 6,] ## remove outlier points
+sr_3s_no <- sr_3s_no[is.finite(sr_3s_no$sel_ratio),] ## all the NAs seem to mess up ggplot order
+
+sr_3w <- reshape(sel_ratios_3[[3]], direction = 'long', varying = list(1:9), v.names = 'sel_ratio', timevar = 'veg', times = colnames(sel_ratios_3[[3]]))
+sr_3w$rank <- ranks_3[[3]][match(sr_3w$veg, ranks_3[[3]]$veg), 'pos_r']
+max(sr_3w$sel_ratio[is.finite(sr_3w$sel_ratio)]) #don't need to remove outliers
+
+s3_sr <- ggplot(data = sr_3s_no, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+  stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
+  geom_point(data = sr_3s_no, aes(x = reorder(veg, rank), y = sel_ratio), position = position_dodge(0.8), size = 2) +
+  scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+  geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + 
+  xlab('Vegetation Class') + ylab(expression(Selection~Ratio~(w[i]))) +
+  theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+        axis.text.y = element_text(size = 12, colour = 'black'),
+        axis.title = element_text(size = 12, colour = 'black'),
+        axis.line.x = element_line(size = 0.5, colour = 'black'),
+        axis.line.y = element_line(size = 0.5, colour = 'black'),
+        panel.background = element_rect(fill = 'white'),
+        plot.margin=unit(c(0.5,0.5,0.75,0.5), "cm")) +
+  #geom_text(label ='*', aes(x = 2, y = 4.5), size = 8, colour = 'grey40') +
+  geom_text(label = 'A', aes(x = 9, y = 4.7), size = 8) 
+s3_sr 
+
+w3_sr <- ggplot(data = sr_3w, aes(x = reorder(veg, rank), y = sel_ratio, fill = as.factor(veg))) +
+  stat_summary(fun.data = geo.mean.ci, geom = 'boxplot') +
+  geom_point(position = position_dodge(0.8), size = 2) +
+  scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+  geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + 
+  xlab('Vegetation Type') + ylab(expression(Selection~Ratio~(w[i]))) +
+  theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+        axis.text.y = element_text(size = 12, colour = 'black'),
+        axis.title = element_text(size = 12, colour = 'black'),
+        axis.line.x = element_line(size = 0.5, colour = 'black'),
+        axis.line.y = element_line(size = 0.5, colour = 'black'),
+        panel.background = element_rect(fill = 'white'),
+        plot.margin=unit(c(0.75,0.5,0.5,0.5), "cm")) +
+  geom_text(label = 'B', aes(x = 9, y = 4.5), size = 8)  
+w3_sr   
+
+grid.arrange(s3_sr, w3_sr, ncol = 1) ## export at 600 wide x 700 high
+
+# ----------------------------------------------------------------
+##  10. Create some cool figures for presentation
+##      a. Summer & winter points within home range, overlaid on veg classes
+# ----------------------------------------------------------------
+
+sum.sp <- SpatialPointsDataFrame(data.frame(sum.locs$utm_e, sum.locs$utm_n),
+                                 data = data.frame(sum.locs), 
+                                 proj4string = CRS('+proj=utm +zone=10 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0'))
+win.sp <- SpatialPointsDataFrame(data.frame(win.locs$utm_e, win.locs$utm_n),
+                                 data = data.frame(win.locs), 
+                                 proj4string = CRS('+proj=utm +zone=10 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0'))
+
+## I tend to forget the for-loop and make these individually anyway. Can export versions with no points,
+## just summer points, etc., and can change the title based on the purpose and audience
+
+ids <- unique(porc.locs$id)
+i <- ids[12]
+#for (i in ids){
+veg.i <- veg_home_ranges[[i]]
+veg.i$colors <- colors[match(veg.i$Class_4, colors$veg), 'veg_colors']
+mypath <- file.path('figures', 'kdes_with_veg', '081316', paste(i, '_veg_95kde', '.png', sep = ''))
+png(file = mypath)
+mytitle = paste('Home range of', i, sep = ' ')
+par(mfrow = c(1, 2), oma = c(0, 0, 0, 12), mar = c(2, 0.2, 4, 0.9), xpd = NA) ## margins: bottom, left, top, right
+proj4string(veg.ext) <- proj4string(outer_cont95[[i]])
+clip.cont <- gIntersection(veg.ext, outer_cont95[[i]], byid = TRUE, drop_lower_td = TRUE)
+plot(ud.list$`15.12`$all)
+plot(clip.cont)    
+for (v in veg_class){     ## veg_class defined above
+  plot(veg.i[veg.i@data$Class_4 == v,], add = TRUE, col = veg.i@data$colors[veg.i@data$Class_4 == v])
+}
+scalebar(500, xy = click(), type = 'bar', divs = 4, below = 'meters') ## click to place (magic!)
+leg.txt <- sort(unique(veg$Class_4))
+leg.col <- colors$veg_colors
+legend('topright', inset = c(-0.75,0.15), legend = leg.txt, pch = 15, col = leg.col, cex = 1.2)
+text(2, 4, 'A', font = 2, cex = 1.3)
+
+legend('bottomright', inset=c(-0.1,0.1), legend = c('summer locations', 'winter locations'), pch = 18, col = c('red', 'darkblue'), cex = 1.2)
+points(sum.sp[sum.sp@data$id == i,], pch = 18, cex = 1.4, col = 'red')
+points(win.sp[win.sp@data$id == i,], pch = 18, cex = 1.4, col = 'darkblue')
+
+dev.off() 
+#}
+
+## may need to run this again to be able to plot again:
+dev.off()
+
+# ----------------------------------------------------------------
+##      b. Veg map of study area
+# ----------------------------------------------------------------
+
+par(mfrow = c(1,1), mar = c(2, 0.2, 4, 6), xpd = TRUE) ## margins: bottom, left, top, right
+veg$colors <- colors[match(veg$Class_4, colors$veg_class), 'veg_colors']
+plot(veg)
+for (v in veg_class){
+  plot(veg[veg$Class_4 == v,], add = TRUE, col = veg$colors[veg$Class_4 == v])
+}
+
+scalebar(1000, xy=click(), type='bar', divs=2, below = "m") ## click to place (so cool!)
+leg.txt <- sort(unique(veg$Class_4))
+leg.col <- colors$veg_colors
+legend('topright', inset = c(-0,-0), legend = leg.txt, pch = 15, col = leg.col, cex = 1)
+
+## optional:
+plot(outer_cont95[[12]], add = TRUE, border = 'red', lwd = 4)
+plot(porc.sp[porc.sp$porc.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="black")
+plot(sum.sp[sum.sp$sum.locs.id == i,], add=TRUE, pch=16, cex=1.5, col="red")
+
+# ----------------------------------------------------------------
+##      c. Wireframe plots showing 3-D UD grid 
+# ----------------------------------------------------------------
+i <- ids[12]
+heights.i.sum <- heights[heights$id %in% i & heights$season == 'sum',]
+heights.i.win <- heights[heights$id %in% i & heights$season == 'win',]
+par(mfrow = c(1,2)) ## doesn't seem to work for wireframe plots
+wireframe(height ~ x * y, data = heights.i.sum, drape = TRUE, xlab = 'Latitude', ylab = 'Longitude', zlab = 'UD \nheight')
+wireframe(height ~ x * y, data = heights.i.win, drape = TRUE, xlab = 'Latitude', ylab = 'Longitude', zlab = 'UD \nheight')
+
+## wireframe plots in grayscale per thesis guidelines
+wireframe(height ~ x * y, data = heights.i.sum, drape=TRUE, xlab = list(label = 'Latitude', cex = 1.3), 
+          ylab = list(label = 'Longitude', cex = 1.3), zlab = list(label = 'UD \nheight', cex = 1.3),
+          col='black', col.regions = colorRampPalette(c('grey100', 'grey0'))(100))
+
+wireframe(height ~ x * y, data = heights.i.win, drape=TRUE, xlab = list(label = 'Latitude', cex = 1.3), 
+          ylab = list(label = 'Longitude', cex = 1.3), zlab = list(label = 'UD \nheight', cex = 1.3), 
+          col='black', col.regions = colorRampPalette(c('grey100', 'grey0'))(100))
+
+plot(ud.list$`15.12`$win)
+
+# ----------------------------------------------------------------
+##      d. Pairwise scatter plots between veg category selection ratios
+# ----------------------------------------------------------------
+
+pairs(sel_ratios_2$sum, main = '2nd order (summer)')
+pairs(sel_ratios_2$win, main = '2nd order (winter)')
+
+pairs(sel_ratios_3$sum, main = '3rd order (summer)')
+pairs(sel_ratios_3$win, main = '3rd order (winter)')
+
+# ----------------------------------------------------------------
+##      e. Revisit scatter plots from eigenanalysis 
+##        (like 'eisera' and 'compana' in adehabiatHS package)
+# ----------------------------------------------------------------
+
+## need to get # relocations instead of UD heights
+
+
+# ----------------------------------------------------------------
+## 11. Miscellaneous summaries
+# ----------------------------------------------------------------
+
+library(lubridate)
+## how many locations in day vs. night? (VHF only)
+
+head(porc.vhf)
+test.date <- as.character(porc.vhf$date)
+test.time <- as.character(porc.vhf$time)
+posix.test <- as.POSIXct(strptime(paste(test.date, test.time), "%Y-%m-%d %I:%M:%S %p"), tz="America/Los_Angeles")
+posix.test.pdt <- as.POSIXct(format(posix.test, tz="America/Los_Angeles", usetz=TRUE))
+porc.vhf$real.date <- posix.test.pdt
+
+## extract time as a decimal number
+porc.vhf$time_posix <- hour(porc.vhf$real.date) + minute(porc.vhf$real.date)/60
+hist(porc.vhf$time_posix)
+
+cutoff <- 20 ## hour I'm using as day/night cutoff (should change seasonally...)
+night <- nrow(porc.vhf[porc.vhf$time_posix >= cutoff,])
+day <- nrow(porc.vhf[porc.vhf$time_posix < cutoff,])
+
+night/nrow(porc.vhf) * 100
+day/nrow(porc.vhf) * 100
+
+## Another way:
+sunset2015 <- read.csv('csvs/sunrise_sunset_2015.csv') # import sunrise/sunset data
+sunset2016 <- read.csv('csvs/sunrise_sunset_2016.csv')
+
+sunsets <- rbind(sunset2015, sunset2016)
+
+sunsets$Day <- as.Date(sunsets$Day, "%m/%d/%Y")
+sunsets$rise <- as.POSIXct(sprintf("%04d", sunsets$Rise),format="%H%M")
+sunsets$set <- as.POSIXct(sprintf("%04d", sunsets$Set),format="%H%M")
+
+sunsets$rise_posix <- hour(sunsets$rise) + minute(sunsets$rise)/60 ## convert to decimal format
+sunsets$set_posix <- hour(sunsets$set) + minute(sunsets$set)/60
+
+porc.vhf$sunrise <- sunsets[match(porc.vhf$date, sunsets$Day), 'rise_posix']
+porc.vhf$sunset <- sunsets[match(porc.vhf$date, sunsets$Day), 'set_posix']
+
+porc.vhf$day_night[porc.vhf$time_posix > porc.vhf$sunrise & porc.vhf$time_posix < porc.vhf$sunset] <- 'day'
+porc.vhf$day_night[porc.vhf$time_posix <= porc.vhf$sunrise | porc.vhf$time_posix >= porc.vhf$sunset] <- 'night'
+
+(nrow(porc.vhf[porc.vhf$day_night == 'day',]) / nrow(porc.vhf)) * 100
+(nrow(porc.vhf[porc.vhf$day_night == 'night',]) / nrow(porc.vhf)) * 100
+
+# ----------------------------------------------------------------
+## BLANK HAB SEL PLOT
+# ----------------------------------------------------------------
+
+ggplot(data = sr_2s, aes(x = reorder(veg, rank), y = 4, fill = as.factor(veg))) +
+  geom_point(data = sr_2s_no, position = position_dodge(0.8), size = 2) +
+  scale_fill_manual(values = colors$veg_colors, guide = FALSE) +
+  geom_hline(yintercept = 1, linetype = 'dashed', lwd = 1) + ylim(0, 6) +
+  xlab('Vegetation Class') + ylab(expression(Selection~Ratio~(w[i]))) + #ylim(0, 5) + ## *see note above
+  theme(axis.text.x = element_text(size = 12, colour = 'black', angle = 35, hjust = 1),
+        axis.text.y = element_text(size = 12, colour = 'black'),
+        axis.title = element_text(size = 12, colour = 'black'),
+        axis.line.x = element_line(size = 0.5, colour = 'black'),
+        axis.line.y = element_line(size = 0.5, colour = 'black'),
+        panel.background = element_rect(fill = 'white'),
+        plot.margin=unit(c(0.5,0.5,0.75,0.5), "cm")) 
+
+
+# ----------------------------------------------------------------
+# Male vs. female habitat selection
+# ----------------------------------------------------------------
+
+sex_key
+sex_key$id <- as.character(sex_key$id)
+sex_key$id[10] <- '15.10'
+sex_key$id[19] <- '16.20'
+
+porc.locs$sex <- sex_key[match(porc.locs$id, sex_key$id), 'sex']
+
+porc.locs.m <- porc.locs[porc.locs$sex == 'm',]
+porc.locs.f <- porc.locs[porc.locs$sex == 'f',]

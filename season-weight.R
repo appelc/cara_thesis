@@ -99,7 +99,7 @@ porc.wts <- porc.wts[porc.wts$id != '15.04' & porc.wts$id != '15.05' & porc.wts$
   porc.wts <- droplevels(porc.wts)
 
 ggplot(data = porc.wts, aes(x = date, y = kg, group = id)) +
-    scale_y_continuous(limits = c(4,12)) +    # either (4,11) or (0,12.5) 
+    scale_y_continuous(limits = c(4,11)) +    # either (4,11) or (0,12.5) 
     scale_x_date(limits = as.Date(c('2015-05-27','2016-09-10'))) + 
     facet_wrap(~ sex, ncol = 1, scales = 'free_y') +
     geom_point(size = 3) + 
